@@ -100,7 +100,7 @@ const header = document.getElementById('header-actions');
 const nav = document.getElementById('mobile-nav');
 const categories = ['Ремонт квартиры','Ванная и плитка','Электрика','Сантехника','Отопление','Кровля','Фасад','Другое'];
 const symbols = ['▤','◈','ϟ','◉','♨','⌂','▥','✦'];
-const state = { user: null, csrf: null, photoUploads: [], estimateItems: [], pendingQuestions: [] };
+const state = { user: null, csrf: null, photoUploads: [], estimateItems: [], pendingQuestions: [], postStep: 1, postReached: 1 };
 const currency = value => value == null ? 'По договорённости' : new Intl.NumberFormat('ru-RU').format(value) + ' ₽';
 const escapeHtml = x => String(x ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const text = escapeHtml;
@@ -196,53 +196,158 @@ const floorValue = form => {
 function postPage() {
   const demo = staticPreview;
   if (!demo && !state.user) {
-    main(intro('Размещение заказа','Создайте бесплатную заявку') + empty('Нужен аккаунт','Войдите как заказчик, чтобы опубликовать задание.','Войти или зарегистрироваться','/auth?mode=register'));
+    main(intro('Размещение заказа', 'Создайте бесплатную заявку') + empty('Нужен аккаунт', 'Войдите как заказчик, чтобы опубликовать задание.', 'Войти или зарегистрироваться', '/auth?mode=register'));
     return;
   }
   if (!demo && !isCustomer()) {
-    main(intro('Размещение заказа','Заявки размещают заказчики')+empty('Это аккаунт исполнителя','Используйте аккаунт заказчика.'));
+    main(intro('Размещение заказа', 'Заявки размещают заказчики') + empty('Это аккаунт исполнителя', 'Используйте аккаунт заказчика.'));
     return;
   }
-  const userCity = state.user?.city || '';
+  state.postStep = 1;
+  state.postReached = 1;
   const count = state.estimateItems.length;
-  main(`<div class="post-shell"><div class="post-heading"><h1>Новая заявка</h1><span class="smallprint">${demo ? 'Демонстрация · не сохраняется' : 'Бесплатно'}</span></div>
-    <form id="${demo ? 'demo-post' : 'create-job'}" class="post-form" autocomplete="on">
-      <section class="post-panel post-description">
-        <label for="free-description" class="post-label">Что нужно сделать?</label>
-        <textarea id="free-description" name="description" required minlength="20" maxlength="2500" placeholder="Например: покрасить стены 40 м² и уложить ламинат 25 м². Материалы мои."></textarea>
-        <div class="post-generate"><button type="button" class="btn post-ai" data-action="generate-draft">${demo ? 'Собрать пример сметы' : 'Составить смету с ИИ'} ↗</button><span class="smallprint">Объёмы проверите сами</span></div>
-        <div id="draft-questions" class="post-notice" role="status"></div>
-      </section>
-      <section class="post-panel">
-        <div class="post-location"><label class="post-field"><span>Город *</span><input required name="city" minlength="2" maxlength="70" value="${text(userCity)}" placeholder="Укажите город"></label>
-        <label class="post-field post-floor"><span>Этаж *</span><select name="floor" required>${floorOptions}</select></label>
-        <label class="post-field post-floor-extra" id="floor-other" hidden><span>Номер этажа</span><input type="number" name="floor_custom" min="26" max="200" step="1" placeholder="26–200"></label></div>
-        <div class="post-choice-block"><span class="post-label post-label-small">Материалы</span>${postChoices('materials_policy',[['contractor','Исполнитель'],['customer','Мои'],['discuss','Обсудим']],'contractor')}</div>
-        <div class="post-choice-block" id="elevator-field" hidden><span class="post-label post-label-small">Лифт</span>${postChoices('elevator',[['yes','Есть'],['no','Нет'],['unknown','Не знаю']],'unknown')}</div>
-        <div class="post-choice-block"><span class="post-label post-label-small">Особенности объекта</span>
-          <div class="post-checks">${accessOptions.map(([key,label]) => `<label class="check-chip"><input type="checkbox" name="access_${key}"><span>${label}</span></label>`).join('')}</div>
-        </div>
-        <details class="post-extras" id="post-extras"><summary>Дополнительно <span>бюджет, сроки, другие условия</span></summary>
-          <div class="post-extras-content">
-            <div class="post-extras-grid"><label class="post-field"><span>Название (необязательно)</span><input name="title" minlength="6" maxlength="140" placeholder="Из описания автоматически"></label>
+  const userCity = state.user?.city || '';
+  const labels = ['Задача', 'Объект', 'Смета', 'Готово'];
+  main(`<div class="post-shell wizard-shell">
+    <div class="post-heading"><h1>Новая заявка</h1><span class="smallprint">${demo ? 'Демо · не сохраняется' : 'Бесплатно'}</span></div>
+    <div class="wizard-progress" aria-label="Этапы заявки">
+      <div class="wizard-progress-track"><div class="wizard-progress-fill" id="wizard-progress-fill"></div></div>
+      <div class="wizard-steps">${labels.map((label, i) => `<button type="button" class="wizard-step" data-action="wizard-jump" data-step="${i + 1}" aria-label="Шаг ${i + 1}: ${label}" aria-disabled="${i !== 0}" ${i === 0 ? 'aria-current="step"' : ''}><span class="wizard-step-dot">${i + 1}</span><span class="wizard-step-label">${label}</span></button>`).join('')}</div>
+    </div>
+    <form id="${demo ? 'demo-post' : 'create-job'}" class="post-form wizard-form" novalidate autocomplete="on">
+      <div class="wizard-page" data-post-page="1">
+        <section class="post-panel post-description"><h2 class="wizard-title">Что нужно сделать?</h2>
+          <textarea id="free-description" name="description" aria-label="Опишите задачу" required minlength="20" maxlength="2500" placeholder="Например: покрасить стены 40 м², уложить ламинат 25 м². Материалы мои."></textarea>
+          <div class="post-generate"><button type="button" class="btn ghost post-ai" data-action="generate-draft">${demo ? 'Собрать пример сметы' : 'Составить смету с ИИ'} ↗</button></div>
+          <div id="draft-questions" class="post-notice" role="status"></div>
+        </section>
+      </div>
+      <div class="wizard-page" data-post-page="2" hidden>
+        <section class="post-panel"><h2 class="wizard-title">Где и в каких условиях?</h2>
+          <div class="post-location"><label class="post-field"><span>Город *</span><input name="city" required minlength="2" maxlength="70" value="${text(userCity)}" placeholder="Город"></label>
+          <label class="post-field post-floor"><span>Этаж *</span><select name="floor" required>${floorOptions}</select></label>
+          <label class="post-field post-floor-extra" id="floor-other" hidden><span>Номер этажа</span><input type="number" name="floor_custom" min="26" max="200" step="1" placeholder="26–200"></label></div>
+          <div class="post-choice-block"><span class="post-label post-label-small">Материалы</span>${postChoices('materials_policy', [['contractor', 'Исполнитель'], ['customer', 'Мои'], ['discuss', 'Обсудим']], 'contractor')}</div>
+          <div class="post-choice-block" id="elevator-field" hidden><span class="post-label post-label-small">Лифт</span>${postChoices('elevator', [['yes', 'Есть'], ['no', 'Нет'], ['unknown', 'Не знаю']], 'unknown')}</div>
+          <div class="post-choice-block"><span class="post-label post-label-small">Особенности</span><div class="post-checks">${accessOptions.map(([key, label]) => `<label class="check-chip"><input type="checkbox" name="access_${key}"><span>${label}</span></label>`).join('')}</div></div>
+          <details class="post-extras"><summary>Дополнительно <span>бюджет, сроки, условия</span></summary><div class="post-extras-content">
+            <div class="post-extras-grid"><label class="post-field"><span>Название</span><input name="title" minlength="6" maxlength="140" placeholder="Из описания"></label>
             <label class="post-field"><span>Бюджет, ₽</span><input name="budget" min="1" type="number" step="1" placeholder="Необязательно"></label>
-            <label class="post-field"><span>Когда начать</span><select name="start_when"><option>По договорённости</option><option>Как можно скорее</option><option>В течение недели</option><option>В течение месяца</option><option>Позже</option></select></label>
-            <label class="post-field"><span>Категория</span><select name="category">${categories.map(c=>`<option>${text(c)}</option>`).join('')}</select></label></div>
-            <label class="post-field"><span>Другие условия</span><textarea name="access_details" rows="2" maxlength="1000" placeholder="Что ещё влияет на стоимость"></textarea></label>
+            <label class="post-field"><span>Начало работ</span><select name="start_when"><option>По договорённости</option><option>Как можно скорее</option><option>В течение недели</option><option>В течение месяца</option><option>Позже</option></select></label>
+            <label class="post-field"><span>Категория</span><select name="category">${categories.map(c => `<option>${text(c)}</option>`).join('')}</select></label></div>
+            <label class="post-field"><span>Другие условия</span><textarea name="access_details" rows="2" maxlength="1000" placeholder="Если есть"></textarea></label>
+          </div></details>
+        </section>
+      </div>
+      <div class="wizard-page" data-post-page="3" hidden>
+        <section class="post-panel post-estimate"><div class="wizard-estimate-head"><h2 class="wizard-title">Работы и материалы</h2><span class="smallprint" id="rate-count">${count} поз.</span></div>
+          <div class="post-estimate-content"><div class="catalog-bar">${catalogSelect()}<button type="button" class="btn ghost small" data-action="add-rate">+ Своя работа</button></div>
+            <div id="estimate-editor">${renderEditor(state.estimateItems)}</div>
           </div>
-        </details>
-      </section>
-      <details class="post-panel post-estimate" id="estimate-details" ${count ? 'open' : ''}>
-        <summary><span>Работы и материалы <strong id="rate-count">${count ? `${count} поз.` : '—'}</strong></span><span class="smallprint">Проверить смету</span></summary>
-        <div class="post-estimate-content"><div class="catalog-bar">${catalogSelect()}<button type="button" class="btn ghost small catalog-add" data-action="add-catalog-rate" aria-label="Добавить из каталога" title="Добавить из каталога">+</button><button type="button" class="btn ghost small" data-action="add-rate">+ Своя</button></div>
-          <div id="estimate-editor">${renderEditor(state.estimateItems)}</div></div>
-      </details>
-      ${demo ? '<p class="post-demo-note">Демо: реальные заявки и контакты не сохраняются.</p>' :
-      `<section class="post-panel post-contact"><div class="post-contact-grid"><label class="post-field"><span>Телефон *</span><input name="phone" type="tel" minlength="10" maxlength="25" required placeholder="+7 900 000-00-00"></label>
-      <label class="post-field"><span>Фото (до 5)</span><input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple></label></div>
-      <label class="post-consent"><input type="checkbox" name="consent" required> Согласен на обработку данных и раскрытие контакта выбранному исполнителю после оплаты.</label></section>`}
-      <div class="post-submit"><button class="btn" type="submit">${demo ? 'Посмотреть заявку' : 'Опубликовать бесплатно'} ↗</button></div>
+        </section>
+      </div>
+      <div class="wizard-page" data-post-page="4" hidden>
+        <section class="post-panel"><h2 class="wizard-title">Проверка и публикация</h2><div class="wizard-review" id="wizard-review"></div>
+          ${demo ? '<p class="post-demo-note">Демонстрация: данные не публикуются.</p>' : `
+          <div class="post-contact-grid"><label class="post-field"><span>Телефон *</span><input name="phone" type="tel" minlength="10" maxlength="25" required placeholder="+7 900 000-00-00" autocomplete="tel"></label>
+          <label class="post-field"><span>Фото (до 5)</span><input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple></label></div>
+          <label class="post-consent"><input type="checkbox" name="consent" required> Согласен на обработку данных и раскрытие контакта выбранному исполнителю после оплаты.</label>`}
+        </section>
+      </div>
+      <div class="wizard-actions"><button type="button" class="btn ghost" data-action="wizard-prev" id="wizard-prev" hidden>← Назад</button>
+        <button type="button" class="btn" data-action="wizard-next" id="wizard-next">Продолжить →</button>
+        <button type="submit" class="btn" id="wizard-submit" hidden>${demo ? 'Посмотреть заявку' : 'Опубликовать бесплатно'} ↗</button></div>
     </form></div>`);
+  showPostStep(1, false);
+}
+
+function showPostStep(step, scroll = true) {
+  const form = document.querySelector('.wizard-form');
+  if (!form || step < 1 || step > 4) return;
+  state.postStep = step;
+  state.postReached = Math.max(step, state.postReached);
+  document.querySelectorAll('[data-post-page]').forEach(page => { page.hidden = Number(page.dataset.postPage) !== step; });
+  document.querySelectorAll('.wizard-step').forEach(button => {
+    const number = Number(button.dataset.step);
+    button.classList.toggle('is-current', number === step);
+    button.classList.toggle('is-done', number < step);
+    button.setAttribute('aria-disabled', String(number > state.postReached));
+    if (number === step) button.setAttribute('aria-current', 'step');
+    else button.removeAttribute('aria-current');
+  });
+  const fill = document.getElementById('wizard-progress-fill');
+  if (fill) fill.style.width = `${(step - 1) / 3 * 100}%`;
+  document.getElementById('wizard-prev').hidden = step === 1;
+  document.getElementById('wizard-next').hidden = step === 4;
+  document.getElementById('wizard-submit').hidden = step !== 4;
+  if (step === 4) {
+    const count = state.estimateItems.length;
+    const city = form.elements.city.value.trim();
+    const summary = document.getElementById('wizard-review');
+    summary.innerHTML = `<div><span>Задача</span><strong>${text(form.elements.title.value || form.elements.description.value.trim().slice(0, 55))}</strong></div>
+      <div><span>Объект</span><strong>${text(city)} · ${floorValue(form) === 0 ? 'участок' : `этаж ${floorValue(form)}`}</strong></div>
+      <div><span>Смета</span><strong>${count} ${count === 1 ? 'работа' : 'работ'}</strong></div>`;
+  }
+  if (scroll) document.querySelector('.wizard-progress')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function validatePostStep(step) {
+  const form = document.querySelector('.wizard-form');
+  if (!form) return false;
+  if (step === 1) {
+    const description = form.elements.description;
+    if (description.value.trim().length < 20) {
+      toast('Опишите задачу: минимум 20 символов');description.focus();return false;
+    }
+  }
+  if (step === 2) {
+    const city = form.elements.city;
+    if (city.value.trim().length < 2 || !city.checkValidity()) {toast('Укажите город');city.focus();return false;}
+    try { floorValue(form); } catch (error) { toast(error.message);form.elements.floor.focus();return false; }
+  }
+  if (step === 3) {
+    try { snapshotRates();collectEditor(document.getElementById('estimate-editor')); }
+    catch (error) {toast(error.message);document.querySelector('#estimate-editor input:invalid, #estimate-editor input')?.focus();return false;}
+  }
+  if (step === 4 && !staticPreview) {
+    for (const name of ['phone', 'consent']) {
+      if (!form.elements[name].checkValidity()) {form.elements[name].reportValidity();return false;}
+    }
+  }
+  return true;
+}
+
+async function buildDraft(advance = false) {
+  const input = document.getElementById('free-description');
+  const prompt = input?.value.trim() || '';
+  if (prompt.length < 20) {toast('Опишите задачу: минимум 20 символов');input?.focus();return false;}
+  const button = document.querySelector('[data-action="generate-draft"]');
+  if (button?.disabled) return false;
+  if (button) {button.disabled = true;button.textContent = 'Составляем...';}
+  try {
+    const draft = staticPreview ? offlineExampleDraft(prompt) : await api('/api/estimate/draft', { method: 'POST', body: JSON.stringify({ text: prompt }) });
+    state.estimateItems = draft.items;
+    refreshRates();
+    const title = document.querySelector('[name=title]');
+    if (title && !title.value.trim()) title.value = draft.title;
+    const category = document.querySelector('[name=category]');
+    if (category && categories.includes(draft.category)) category.value = draft.category;
+    const floor = document.querySelector('[name=floor]');
+    if (floor && draft.floor != null && [...floor.options].some(o => o.value === String(draft.floor))) {
+      floor.value = draft.floor;
+      floor.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const questions = document.getElementById('draft-questions');
+    if (questions) questions.textContent = staticPreview ? 'Демо без ИИ: проверьте смету.' : 'Проверьте объёмы на шаге «Смета».';
+    toast('Черновик сметы готов');
+    if (advance) showPostStep(2);
+    return true;
+  } catch (error) {
+    toast(error.message);
+    return false;
+  } finally {
+    if (button) {button.disabled = false;button.textContent = staticPreview ? 'Собрать пример сметы ↗' : 'Составить смету с ИИ ↗';}
+  }
 }
 
 function snapshotRates() {
@@ -318,15 +423,20 @@ function formPayload(form){const f=new FormData(form);return Object.fromEntries(
 async function submitForm(form){
  const fields=formPayload(form);
  try{
-  if (form.id === 'demo-post' || form.id === 'create-job') {
+  if (form.classList.contains('wizard-form')) {
+   if (state.postStep !== 4) {toast('Завершите шаги заявки');return;}
+   for (let step = 1; step <= 4; step++) {
+     if (!validatePostStep(step)) {showPostStep(step);return;}
+   }
+ }
+ if (form.id === 'demo-post' || form.id === 'create-job') {
     fillAutomaticTitle(form);
     fields.title = form.elements.title.value.trim();
     fields.access_details = collectAccessDetails(form);
     fields.floor = floorValue(form);
     try { collectEditor(document.getElementById('estimate-editor')); }
     catch (err) {
-      const section = document.getElementById('estimate-details');
-      if (section) section.open = true;
+      showPostStep(3);
       throw err;
     }
   }
@@ -374,45 +484,49 @@ async function loadSession(){try{const d=await api('/api/me');state.user=d.user;
 document.addEventListener('click',async e=>{
  const link=e.target.closest('[data-link]');if(link&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey){e.preventDefault();navTo(link.getAttribute('href'));return;}
  const btn=e.target.closest('[data-action]');if(!btn)return;
- if(['add-rate','add-catalog-rate','delete-rate','add-material','delete-material'].includes(btn.dataset.action)){
-   snapshotRates();
-   const index=Number(btn.dataset.index);
-   if(btn.dataset.action==='add-rate')state.estimateItems.push(emptyRate());
-   if(btn.dataset.action==='add-catalog-rate'){
-     const idx=document.getElementById('quick-rate').value;
-     if(idx==='')return toast('Выберите расценку из каталога');
-     const r=RATE_CATALOG[Number(idx)];state.estimateItems.push(emptyRate(r[0],r[1],r[2]));
+ if (btn.dataset.action === 'wizard-prev') {showPostStep(state.postStep - 1);return;}
+ if (btn.dataset.action === 'wizard-next') {
+   if (!validatePostStep(state.postStep)) return;
+   if (state.postStep === 1 && !state.estimateItems.length) await buildDraft();
+   showPostStep(state.postStep + 1);
+   return;
+ }
+ if (btn.dataset.action === 'wizard-jump') {
+   const target = Number(btn.dataset.step);
+   if (target > state.postReached) return;
+   if (target > state.postStep) {
+     for (let step = state.postStep; step < target; step++) if (!validatePostStep(step)) return;
    }
-   if(btn.dataset.action==='delete-rate')state.estimateItems.splice(index,1);
-   if(btn.dataset.action==='add-material')state.estimateItems[index].materials.push({label:'',unit:'шт.',quantity:null});
-   if(btn.dataset.action==='delete-material')state.estimateItems[index].materials.splice(Number(btn.dataset.material),1);
-   if(state.estimateItems.length>40){state.estimateItems.length=40;return toast('Не больше 40 расценок')}
+   showPostStep(target);return;
+ }
+ if (btn.dataset.action === 'toggle-catalog') {
+   const panel = document.getElementById('catalog-panel');
+   if (!panel) return;
+   panel.hidden = !panel.hidden;
+   btn.setAttribute('aria-expanded', String(!panel.hidden));
+   if (!panel.hidden) document.getElementById('catalog-search')?.focus();
+   return;
+ }
+ if (['add-rate','pick-catalog-rate','delete-rate','add-material','delete-material'].includes(btn.dataset.action)) {
+   snapshotRates();
+   const index = Number(btn.dataset.index);
+   if (btn.dataset.action === 'add-rate') state.estimateItems.push(emptyRate());
+   if (btn.dataset.action === 'pick-catalog-rate') {
+     const r = RATE_CATALOG[Number(btn.dataset.rateIndex)];
+     if (!r) return;
+     state.estimateItems.push(emptyRate(r[0], r[1], r[2]));
+     const catalog = document.getElementById('catalog-panel');
+     if (catalog) catalog.hidden = true;
+     document.querySelector('.catalog-toggle')?.setAttribute('aria-expanded', 'false');
+   }
+   if (btn.dataset.action === 'delete-rate') state.estimateItems.splice(index, 1);
+   if (btn.dataset.action === 'add-material') state.estimateItems[index].materials.push({label:'',unit:'шт.',quantity:null});
+   if (btn.dataset.action === 'delete-material') state.estimateItems[index].materials.splice(Number(btn.dataset.material), 1);
+   if (state.estimateItems.length > 40) {state.estimateItems.length = 40;toast('Не больше 40 работ');}
    refreshRates();
-   const section=document.getElementById('estimate-details');
-   if(section) section.open=true;
    return;
  }
- if(btn.dataset.action==='generate-draft'){
-   const input=document.getElementById('free-description');
-   const prompt=input?.value.trim()||'';
-   if(prompt.length<20)return toast('Опишите работу подробнее: не менее 20 символов');
-   btn.disabled=true;const old=btn.textContent;btn.textContent='Составляем...';
-   try{
-     const draft=staticPreview?offlineExampleDraft(prompt):await api('/api/estimate/draft',{method:'POST',body:JSON.stringify({text:prompt})});
-     state.estimateItems=draft.items;
-     refreshRates();
-     const section=document.getElementById('estimate-details');
-     if(section) section.open=true;
-     const field=document.querySelector('[name=title]');if(field && !field.value.trim())field.value=draft.title;
-     const category=document.querySelector('[name=category]');if(category && categories.includes(draft.category))category.value=draft.category;
-     const floor=document.querySelector('[name=floor]');if(floor&&draft.floor!=null)floor.value=draft.floor;
-     const elevator=document.querySelector('[name=elevator]');if(elevator&&draft.elevator)elevator.value=draft.elevator;
-     const questions=document.getElementById('draft-questions');
-     questions.textContent=staticPreview ? 'Демо без ИИ. Проверьте объёмы.' : (draft.questions?.length ? 'Проверьте объёмы и условия.' : '');
-     toast('Черновик готов. Проверьте объёмы и материалы');
-   }catch(err){toast(err.message)}finally{btn.disabled=false;btn.textContent=old}
-   return;
- }
+ if (btn.dataset.action === 'generate-draft') {await buildDraft(true);return;}
  if(btn.dataset.action==='logout'){try{await api('/api/logout',{method:'POST'});await loadSession();navTo('/')}catch(err){toast(err.message)}}
  if(btn.dataset.action==='select-offer'){
   if(!confirm('Выбрать этого исполнителя? После выбора новые предложения приниматься не будут.'))return;
@@ -443,12 +557,49 @@ document.addEventListener('change', e => {
 document.addEventListener('invalid', e=>{
  const details=e.target.closest?.('details');
  if(details)details.open=true;
+ const page=e.target.closest?.('[data-post-page]');
+ if(page&&state.postStep!==Number(page.dataset.postPage))showPostStep(Number(page.dataset.postPage));
 },true);
 document.addEventListener('input', e=>{
+ if (e.target.id === 'catalog-search') {
+   const query = e.target.value.toLocaleLowerCase('ru').trim();
+   let visible = 0;
+   document.querySelectorAll('.catalog-group').forEach(group => {
+     let count = 0;
+     group.querySelectorAll('.catalog-option').forEach(option => {
+       const match = option.dataset.search.includes(query);
+       option.hidden = !match;
+       if (match) count++;
+     });
+     group.hidden = !count;
+     visible += count;
+   });
+   const empty = document.getElementById('catalog-no-results');
+   if (empty) empty.hidden = visible > 0;
+ }
  if(e.target.id==='calc-amount'){const n=Number(e.target.value);document.getElementById('calc-fee').textContent=n>0?'За контакт: '+formatFee(n):'Укажите стоимость заказа';}
  if(e.target.classList.contains('quote-input')){
    const form=e.target.closest('#offer-form');if(form){const amount=updateOfferTotal(form);
    form.querySelector('#fee-preview').textContent=amount>0?'При выборе вас цена открытия контакта: '+formatFee(amount):'';}
+ }
+});
+document.addEventListener('click', e => {
+ if (!e.target.closest('.rate-catalog')) {
+   const panel = document.getElementById('catalog-panel');
+   if (panel && !panel.hidden) {
+     panel.hidden = true;
+     document.querySelector('.catalog-toggle')?.setAttribute('aria-expanded', 'false');
+   }
+ }
+});
+document.addEventListener('keydown', e => {
+ if (e.key === 'Escape') {
+   const panel = document.getElementById('catalog-panel');
+   if (panel && !panel.hidden) {
+     panel.hidden = true;
+     document.querySelector('.catalog-toggle')?.setAttribute('aria-expanded', 'false');
+     document.querySelector('.catalog-toggle')?.focus();
+   }
  }
 });
 document.addEventListener('submit',e=>{e.preventDefault();submitForm(e.target)});

@@ -29,8 +29,28 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({
 })[c]);
 const money = n => new Intl.NumberFormat('ru-RU').format(Math.round(n || 0)) + ' ₽';
 
+/** Group the same lightweight rates without introducing category pages or a second catalog. */
+export const RATE_GROUPS = [
+  { name: 'Стены и отделка', indexes: [2, 3, 4, 11, 13] },
+  { name: 'Полы и покрытия', indexes: [1, 5, 10] },
+  { name: 'Плиточные работы', indexes: [0] },
+  { name: 'Электрика', indexes: [6, 7] },
+  { name: 'Сантехника и трубы', indexes: [8, 9] },
+  { name: 'Подготовка и прочее', indexes: [12, 14] }
+];
+
 export function catalogSelect() {
-  return `<select id="quick-rate" aria-label="Каталог работ"><option value="">Каталог работ</option>${RATE_CATALOG.map((r,i)=>`<option value="${i}">${escape(r[0])} · ${escape(r[1])}</option>`).join('')}</select>`;
+  return `<div class="rate-catalog" id="rate-catalog">
+    <button type="button" class="catalog-toggle" data-action="toggle-catalog" aria-expanded="false" aria-controls="catalog-panel">▦ <span>Каталог работ</span><span class="catalog-chevron" aria-hidden="true">⌄</span></button>
+    <div class="catalog-panel" id="catalog-panel" hidden>
+      <input class="catalog-search" id="catalog-search" type="search" placeholder="Поиск работ" aria-label="Поиск по каталогу" autocomplete="off">
+      <div class="catalog-options">${RATE_GROUPS.map(g => `<section class="catalog-group">
+        <h3>${escape(g.name)}</h3>
+        ${g.indexes.map(i => `<button type="button" data-action="pick-catalog-rate" data-rate-index="${i}" class="catalog-option" data-search="${escape(RATE_CATALOG[i][0].toLowerCase())}"><span>${escape(RATE_CATALOG[i][0])}</span><small>${escape(RATE_CATALOG[i][1])}</small></button>`).join('')}
+      </section>`).join('')}
+      <div id="catalog-no-results" hidden class="catalog-no-results">Ничего не найдено</div></div>
+    </div>
+  </div>`;
 }
 
 export function renderEditor(items) {

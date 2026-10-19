@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import {
-  RATE_CATALOG, PRICE_SCOPE, emptyRate, renderEditor, offerFields, comparisonTable,
+  RATE_CATALOG, RATE_GROUPS, PRICE_SCOPE, emptyRate, renderEditor, catalogSelect, offerFields, comparisonTable,
   offlineExampleDraft
 } from '../app/static/estimate.js';
 assert.equal(RATE_CATALOG.length, 15);
+assert.ok(RATE_GROUPS.length >= 5);
+const groupedIndexes = RATE_GROUPS.flatMap(group => group.indexes);
+assert.deepEqual([...groupedIndexes].sort((a,b)=>a-b), Array.from({length:RATE_CATALOG.length},(_,i)=>i));
+assert.match(catalogSelect(), /catalog-panel/);
+assert.match(catalogSelect(), /catalog-search/);
+assert.match(catalogSelect(), /data-action=\"pick-catalog-rate\"/);
+
 assert.match(PRICE_SCOPE, /мобилизац/);
 assert.match(PRICE_SCOPE, /лес/);
 assert.match(PRICE_SCOPE, /подъём/);
