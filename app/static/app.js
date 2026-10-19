@@ -163,6 +163,36 @@ async function jobsPage(){
   try {const v=await api('/api/jobs?'+new URLSearchParams({city,category:cat,q}));document.getElementById('job-feed').innerHTML=v.jobs.length?v.jobs.map(card).join(''):empty('Пока нет заявок','В этом городе или категории ещё нет открытых заданий.','Разместить заказ');}
   catch(e){ document.getElementById('job-feed').innerHTML=empty('Не удалось загрузить задания',e.message); }
 }
+const accessOptions = [
+  ['demolition', 'Нужен демонтаж'],
+  ['waste', 'Вывоз мусора'],
+  ['scaffolding', 'Нужны леса'],
+  ['delivery', 'Сложная разгрузка'],
+  ['hours', 'Ограничены часы'],
+  ['utilities', 'Нет воды / света']
+];
+const floorOptions = '<option value="" selected disabled>Этаж *</option><option value="0">Улица / участок</option>' +
+  Array.from({length:25},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('') + '<option value="other">Другой…</option>';
+const postChoices = (name, entries, selected) => `<div class="post-choice" role="group" aria-label="${name}">${entries.map(([value,label]) =>
+  `<label class="choice-pill"><input type="radio" name="${name}" value="${value}" ${value===selected?'checked':''}><span>${label}</span></label>`).join('')}</div>`;
+const fillAutomaticTitle = form => {
+  const title = form?.elements?.title;
+  if (title && !title.value.trim()) title.value = (form.elements.description?.value||'').trim().replace(/\s+/g,' ').slice(0,100);
+};
+const collectAccessDetails = form => [
+  ...accessOptions.filter(([key]) => form.querySelector(`[name="access_${key}"]`)?.checked).map(([,label])=>label),
+  form.elements.access_details?.value.trim() || ''
+].filter(Boolean).join('; ');
+const floorValue = form => {
+  const selected = form.elements.floor.value;
+  if (selected === 'other') {
+    const custom = Number(form.elements.floor_custom.value);
+    if (!Number.isInteger(custom) || custom < 26 || custom > 200) throw Error('Укажите этаж от 26 до 200');
+    return custom;
+  }
+  if (selected === '') throw Error('Укажите этаж');
+  return Number(selected);
+};
 function postPage() {
   const demo = staticPreview;
   if (!demo && !state.user) {
@@ -174,43 +204,44 @@ function postPage() {
     return;
   }
   const userCity = state.user?.city || '';
-  const aiLabel = demo ? 'Собрать пример без ИИ' : 'Составить смету с ИИ';
-  main(intro(demo ? 'Демо' : 'Заказ','Что нужно сделать?')+
-    `<div class="form-shell wide"><form id="${demo ? 'demo-post' : 'create-job'}">
-      <div class="card form-section"><div class="eyebrow">01 · Описание</div>
-        <div class="field" style="margin-top:15px"><label>Что нужно сделать? *</label>
-          <textarea id="free-description" name="description" required minlength="20" maxlength="2500" placeholder="Например: нужно облицевать стены ванной плиткой, 18 м². Квартира на 5 этаже, лифта нет. Материалы должен предоставить мастер."></textarea>
-</div>
-        <div class="hero-actions"><button type="button" class="btn" data-action="generate-draft">${aiLabel} ↗</button>
-</div>
-        <div id="draft-questions" class="smallprint"></div>
-      </div>
-      <div class="card form-section estimate-section"><div class="eyebrow">02 · Работы и материалы</div>
-        <div class="catalog-bar">${catalogSelect()}<button type="button" class="btn ghost small catalog-add" data-action="add-catalog-rate" aria-label="Добавить из каталога" title="Добавить из каталога">+</button>
-          <button type="button" class="btn ghost small" data-action="add-rate">+ Своя</button></div>
-        <div id="estimate-editor">${renderEditor(state.estimateItems)}</div>
-      </div>
-      <div class="card form-section"><div class="eyebrow">03 · Условия</div>
-        <div class="form-grid" style="margin-top:16px">
-        <div class="field"><label>Название заявки *</label><input required name="title" minlength="6" maxlength="140" placeholder="Например, ремонт ванной"></div>
-        <div class="field"><label>Город *</label><input required name="city" minlength="2" maxlength="70" value="${text(userCity)}" placeholder="Город"></div>
-        <div class="field"><label>Вид работ</label><select name="category">${categories.map(c=>`<option>${text(c)}</option>`).join('')}</select></div>
-        <div class="field"><label>Этаж *</label><input name="floor" required type="number" min="0" max="200" step="1" placeholder="0 — участок или первый уровень"></div>
-        <div class="field"><label>Грузовой / пассажирский лифт</label><select name="elevator"><option value="unknown">Не знаю / неприменимо</option><option value="yes">Есть</option><option value="no">Нет</option></select></div>
-        <div class="field"><label>Материалы предоставляет</label><select name="materials_policy"><option value="contractor">Исполнитель</option><option value="customer">Заказчик</option><option value="discuss">Обсудим</option></select></div>
-        <div class="field"><label>Бюджет (необязательно), ₽</label><input name="budget" min="1" step="1" type="number"></div>
-        <div class="field"><label>Когда нужно начать</label><select name="start_when"><option>По договорённости</option><option>Как можно скорее</option><option>В течение недели</option><option>В течение месяца</option><option>Позже</option></select></div></div>
-        <div class="field"><label>Другие условия, влияющие на стоимость</label>
-          <textarea name="access_details" maxlength="1000" placeholder="Возможность разгрузки, парковка, расстояние переноски, работа по часам, наличие воды и электричества, демонтаж, вывоз мусора, потребность в лесах/подмостях..."></textarea></div>
-
-      </div>
-      ${demo ? '<div class="notice warn">Публичное демо: здесь можно посмотреть подготовленный черновик. Данные не сохраняются, контакты не собираются.</div>' :
-        `<div class="card form-section"><div class="eyebrow">04 · Контакт и фото</div>
-           <div class="field" style="margin-top:14px"><label>Телефон *</label><input name="phone" type="tel" minlength="10" maxlength="25" required placeholder="+7 900 000-00-00"><small class="smallprint">Скрыт от исполнителей до подтверждённой оплаты доступа.</small></div>
-           <div class="field"><label>До 5 фотографий (5 МБ каждая)</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple></div>
-           <label class="smallprint"><input type="checkbox" required name="consent"> Согласен на обработку данных и раскрытие контакта выбранному исполнителю после оплаты.</label>
-         </div>`}
-      <div class="form-actions"><button class="btn" type="submit">${demo ? 'Посмотреть черновик' : 'Опубликовать бесплатно'} ↗</button></div>
+  const count = state.estimateItems.length;
+  main(`<div class="post-shell"><div class="post-heading"><h1>Новая заявка</h1><span class="smallprint">${demo ? 'Демонстрация · не сохраняется' : 'Бесплатно'}</span></div>
+    <form id="${demo ? 'demo-post' : 'create-job'}" class="post-form" autocomplete="on">
+      <section class="post-panel post-description">
+        <label for="free-description" class="post-label">Что нужно сделать?</label>
+        <textarea id="free-description" name="description" required minlength="20" maxlength="2500" placeholder="Например: покрасить стены 40 м² и уложить ламинат 25 м². Материалы мои."></textarea>
+        <div class="post-generate"><button type="button" class="btn post-ai" data-action="generate-draft">${demo ? 'Собрать пример сметы' : 'Составить смету с ИИ'} ↗</button><span class="smallprint">Объёмы проверите сами</span></div>
+        <div id="draft-questions" class="post-notice" role="status"></div>
+      </section>
+      <section class="post-panel">
+        <div class="post-location"><label class="post-field"><span>Город *</span><input required name="city" minlength="2" maxlength="70" value="${text(userCity)}" placeholder="Укажите город"></label>
+        <label class="post-field post-floor"><span>Этаж *</span><select name="floor" required>${floorOptions}</select></label>
+        <label class="post-field post-floor-extra" id="floor-other" hidden><span>Номер этажа</span><input type="number" name="floor_custom" min="26" max="200" step="1" placeholder="26–200"></label></div>
+        <div class="post-choice-block"><span class="post-label post-label-small">Материалы</span>${postChoices('materials_policy',[['contractor','Исполнитель'],['customer','Мои'],['discuss','Обсудим']],'contractor')}</div>
+        <div class="post-choice-block" id="elevator-field" hidden><span class="post-label post-label-small">Лифт</span>${postChoices('elevator',[['yes','Есть'],['no','Нет'],['unknown','Не знаю']],'unknown')}</div>
+        <div class="post-choice-block"><span class="post-label post-label-small">Особенности объекта</span>
+          <div class="post-checks">${accessOptions.map(([key,label]) => `<label class="check-chip"><input type="checkbox" name="access_${key}"><span>${label}</span></label>`).join('')}</div>
+        </div>
+        <details class="post-extras" id="post-extras"><summary>Дополнительно <span>бюджет, сроки, другие условия</span></summary>
+          <div class="post-extras-content">
+            <div class="post-extras-grid"><label class="post-field"><span>Название (необязательно)</span><input name="title" minlength="6" maxlength="140" placeholder="Из описания автоматически"></label>
+            <label class="post-field"><span>Бюджет, ₽</span><input name="budget" min="1" type="number" step="1" placeholder="Необязательно"></label>
+            <label class="post-field"><span>Когда начать</span><select name="start_when"><option>По договорённости</option><option>Как можно скорее</option><option>В течение недели</option><option>В течение месяца</option><option>Позже</option></select></label>
+            <label class="post-field"><span>Категория</span><select name="category">${categories.map(c=>`<option>${text(c)}</option>`).join('')}</select></label></div>
+            <label class="post-field"><span>Другие условия</span><textarea name="access_details" rows="2" maxlength="1000" placeholder="Что ещё влияет на стоимость"></textarea></label>
+          </div>
+        </details>
+      </section>
+      <details class="post-panel post-estimate" id="estimate-details" ${count ? 'open' : ''}>
+        <summary><span>Работы и материалы <strong id="rate-count">${count ? `${count} поз.` : '—'}</strong></span><span class="smallprint">Проверить смету</span></summary>
+        <div class="post-estimate-content"><div class="catalog-bar">${catalogSelect()}<button type="button" class="btn ghost small catalog-add" data-action="add-catalog-rate" aria-label="Добавить из каталога" title="Добавить из каталога">+</button><button type="button" class="btn ghost small" data-action="add-rate">+ Своя</button></div>
+          <div id="estimate-editor">${renderEditor(state.estimateItems)}</div></div>
+      </details>
+      ${demo ? '<p class="post-demo-note">Демо: реальные заявки и контакты не сохраняются.</p>' :
+      `<section class="post-panel post-contact"><div class="post-contact-grid"><label class="post-field"><span>Телефон *</span><input name="phone" type="tel" minlength="10" maxlength="25" required placeholder="+7 900 000-00-00"></label>
+      <label class="post-field"><span>Фото (до 5)</span><input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple></label></div>
+      <label class="post-consent"><input type="checkbox" name="consent" required> Согласен на обработку данных и раскрытие контакта выбранному исполнителю после оплаты.</label></section>`}
+      <div class="post-submit"><button class="btn" type="submit">${demo ? 'Посмотреть заявку' : 'Опубликовать бесплатно'} ↗</button></div>
     </form></div>`);
 }
 
@@ -221,6 +252,8 @@ function snapshotRates() {
 function refreshRates() {
   const editor = document.getElementById('estimate-editor');
   if (editor) editor.innerHTML = renderEditor(state.estimateItems);
+  const count = document.getElementById('rate-count');
+  if (count) count.textContent = state.estimateItems.length ? `${state.estimateItems.length} поз.` : '—';
 }
 
 async function detailPage(id) {
@@ -285,6 +318,19 @@ function formPayload(form){const f=new FormData(form);return Object.fromEntries(
 async function submitForm(form){
  const fields=formPayload(form);
  try{
+  if (form.id === 'demo-post' || form.id === 'create-job') {
+    fillAutomaticTitle(form);
+    fields.title = form.elements.title.value.trim();
+    fields.access_details = collectAccessDetails(form);
+    fields.floor = floorValue(form);
+    try { collectEditor(document.getElementById('estimate-editor')); }
+    catch (err) {
+      const section = document.getElementById('estimate-details');
+      if (section) section.open = true;
+      throw err;
+    }
+  }
+
   const button=form.querySelector('button[type=submit],button:not([type])');if(button){button.disabled=true;button.dataset.original=button.textContent;button.textContent='Подождите...'}
   if(form.id==='demo-post' && staticPreview) {
     const items = collectEditor(document.getElementById('estimate-editor'));
@@ -312,7 +358,7 @@ async function submitForm(form){
    const items=collectEditor(document.getElementById('estimate-editor'));
    const raw={title:fields.title,description:fields.description,city:fields.city,category:fields.category,
      budget:fields.budget?Number(fields.budget):null,start_when:fields.start_when,phone:fields.phone,items,
-     floor:Number(fields.floor),elevator:fields.elevator,materials_policy:fields.materials_policy,access_details:fields.access_details};
+     floor:fields.floor,elevator:fields.elevator,materials_policy:fields.materials_policy,access_details:fields.access_details};
    const files=[...form.querySelector('[name=photos]').files];if(files.length>5)throw Error('Не более 5 фото');if(files.some(x=>x.size>5*1024*1024 || !['image/jpeg','image/png','image/webp'].includes(x.type)))throw Error('Фото: только JPEG/PNG/WEBP до 5 МБ');
    const r=await api('/api/jobs',{method:'POST',body:JSON.stringify(raw)});
    let failed=0;for(const file of files){const fd=new FormData();fd.append('upload',file);try{await api(`/api/jobs/${r.id}/photos`,{method:'POST',body:fd})}catch{failed++}}
@@ -341,7 +387,10 @@ document.addEventListener('click',async e=>{
    if(btn.dataset.action==='add-material')state.estimateItems[index].materials.push({label:'',unit:'шт.',quantity:null});
    if(btn.dataset.action==='delete-material')state.estimateItems[index].materials.splice(Number(btn.dataset.material),1);
    if(state.estimateItems.length>40){state.estimateItems.length=40;return toast('Не больше 40 расценок')}
-   refreshRates();return;
+   refreshRates();
+   const section=document.getElementById('estimate-details');
+   if(section) section.open=true;
+   return;
  }
  if(btn.dataset.action==='generate-draft'){
    const input=document.getElementById('free-description');
@@ -352,12 +401,14 @@ document.addEventListener('click',async e=>{
      const draft=staticPreview?offlineExampleDraft(prompt):await api('/api/estimate/draft',{method:'POST',body:JSON.stringify({text:prompt})});
      state.estimateItems=draft.items;
      refreshRates();
-     const field=document.querySelector('[name=title]');if(field)field.value=draft.title;
+     const section=document.getElementById('estimate-details');
+     if(section) section.open=true;
+     const field=document.querySelector('[name=title]');if(field && !field.value.trim())field.value=draft.title;
      const category=document.querySelector('[name=category]');if(category && categories.includes(draft.category))category.value=draft.category;
      const floor=document.querySelector('[name=floor]');if(floor&&draft.floor!=null)floor.value=draft.floor;
      const elevator=document.querySelector('[name=elevator]');if(elevator&&draft.elevator)elevator.value=draft.elevator;
      const questions=document.getElementById('draft-questions');
-     questions.textContent=[draft.disclaimer, ...(draft.questions||[])].filter(Boolean).join(' · ');
+     questions.textContent=staticPreview ? 'Демо без ИИ. Проверьте объёмы.' : (draft.questions?.length ? 'Проверьте объёмы и условия.' : '');
      toast('Черновик готов. Проверьте объёмы и материалы');
    }catch(err){toast(err.message)}finally{btn.disabled=false;btn.textContent=old}
    return;
@@ -377,6 +428,22 @@ document.addEventListener('click',async e=>{
   try{await api(`/api/jobs/${btn.dataset.job}/reopen`,{method:'POST'});toast('Поиск возобновлён');render()}catch(err){toast(err.message)}
  }
 });
+document.addEventListener('change', e => {
+ if(e.target.name==='floor') {
+   const isOther=e.target.value==='other';
+   const input=document.querySelector('[name=floor_custom]');
+   const holder=document.getElementById('floor-other');
+   if(holder)holder.hidden=!isOther;
+   if(input)input.required=isOther;
+   const n=Number(e.target.value);
+   const elevator=document.getElementById('elevator-field');
+   if(elevator)elevator.hidden=e.target.value==='' || (!isOther && n<2);
+ }
+});
+document.addEventListener('invalid', e=>{
+ const details=e.target.closest?.('details');
+ if(details)details.open=true;
+},true);
 document.addEventListener('input', e=>{
  if(e.target.id==='calc-amount'){const n=Number(e.target.value);document.getElementById('calc-fee').textContent=n>0?'За контакт: '+formatFee(n):'Укажите стоимость заказа';}
  if(e.target.classList.contains('quote-input')){
