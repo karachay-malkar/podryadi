@@ -30,26 +30,26 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({
 const money = n => new Intl.NumberFormat('ru-RU').format(Math.round(n || 0)) + ' ₽';
 
 export function catalogSelect() {
-  return `<select id="quick-rate" aria-label="Типовая расценка"><option value="">Выбрать из короткого каталога</option>${RATE_CATALOG.map((r, i) => `<option value="${i}">${escape(r[0])} · ${escape(r[1])}</option>`).join('')}</select>`;
+  return `<select id="quick-rate" aria-label="Каталог работ"><option value="">Каталог работ</option>${RATE_CATALOG.map((r,i)=>`<option value="${i}">${escape(r[0])} · ${escape(r[1])}</option>`).join('')}</select>`;
 }
 
 export function renderEditor(items) {
-  if (!items.length) return '<p class="muted">Добавьте работу из каталога или опишите её самостоятельно.</p>';
-  return items.map((rate, index) => `<section class="estimate-rate" data-index="${index}">
-    <div class="estimate-heading"><strong>Расценка ${index + 1}</strong><button type="button" class="btn text small" data-action="delete-rate" data-index="${index}">Удалить</button></div>
+  if (!items.length) return '<div class="estimate-empty">Добавьте работу из каталога или свою</div>';
+  return items.map((rate,index) => `<div class="estimate-rate" data-index="${index}">
     <div class="estimate-input-grid">
-      <label>Работа<input class="rate-label" maxlength="160" required value="${escape(rate.label)}" placeholder="Название работы"></label>
-      <label>Количество<input class="rate-qty" min="0.001" step="any" type="number" required value="${rate.quantity ?? ''}" placeholder="Уточнить"></label>
-      <label>Ед.<input class="rate-unit" maxlength="12" required value="${escape(rate.unit)}"></label>
+      <input class="rate-label" maxlength="160" required aria-label="Работа ${index+1}" value="${escape(rate.label)}" placeholder="Работа">
+      <input class="rate-qty" min="0.001" step="any" type="number" inputmode="decimal" required aria-label="Количество работы ${index+1}" value="${rate.quantity ?? ''}" placeholder="Кол-во">
+      <input class="rate-unit" maxlength="12" required aria-label="Единица работы ${index+1}" value="${escape(rate.unit)}" placeholder="Ед.">
+      <button type="button" class="rate-remove" data-action="delete-rate" data-index="${index}" aria-label="Удалить работу ${index+1}" title="Удалить работу">×</button>
     </div>
-    <div class="materials-heading"><strong>Материалы</strong><button type="button" class="btn text small" data-action="add-material" data-index="${index}">+ Материал</button></div>
-    <div class="materials-editor">${(rate.materials || []).map((m, j) => `<div class="material-edit" data-index="${j}">
-      <input class="material-name" maxlength="120" required value="${escape(m.label)}" placeholder="Материал">
-      <input class="material-qty" type="number" step="any" min="0.001" required value="${m.quantity ?? ''}" placeholder="Кол-во">
-      <input class="material-unit" maxlength="12" required value="${escape(m.unit)}" placeholder="Ед.">
-      <button type="button" data-action="delete-material" data-index="${index}" data-material="${j}" aria-label="Удалить материал">×</button>
+    <div class="materials-editor">${(rate.materials||[]).map((m,j)=>`<div class="material-edit" data-index="${j}">
+      <input class="material-name" maxlength="120" required aria-label="Материал ${j+1}" value="${escape(m.label)}" placeholder="Материал">
+      <input class="material-qty" type="number" inputmode="decimal" step="any" min="0.001" required aria-label="Количество материала ${j+1}" value="${m.quantity ?? ''}" placeholder="Кол-во">
+      <input class="material-unit" maxlength="12" required aria-label="Единица материала ${j+1}" value="${escape(m.unit)}" placeholder="Ед.">
+      <button type="button" class="rate-remove" data-action="delete-material" data-index="${index}" data-material="${j}" aria-label="Удалить материал ${j+1}" title="Удалить материал">×</button>
     </div>`).join('')}</div>
-  </section>`).join('');
+    <button type="button" class="material-add" data-action="add-material" data-index="${index}">+ материал</button>
+  </div>`).join('');
 }
 
 export function collectEditor(root, { strict = true } = {}) {
@@ -71,11 +71,11 @@ export function collectEditor(root, { strict = true } = {}) {
 }
 
 export function offerFields(items, materialsPolicy = 'contractor') {
-  return `<div class="quote-scroll"><table class="quote-table"><thead><tr><th>Расценка</th><th>Кол-во</th><th>Цена за ед., ₽</th><th>Сумма</th></tr></thead><tbody>${items.map(r => `
-    <tr class="quote-work"><th>${escape(r.label)} <small>Работа</small></th><td>${r.quantity} ${escape(r.unit)}</td>
-    <td><input type="number" class="quote-input" min="0" max="100000000" step="1" required name="rate_${r.id}" data-qty="${r.quantity}" placeholder="0"></td><td class="quote-line">—</td></tr>
-    ${r.materials.map(m => `<tr class="quote-material"><th>↳ ${escape(m.label)} <small>Материал</small></th><td>${m.quantity} ${escape(m.unit)}</td>
-    <td><input type="number" class="quote-input" min="0" max="100000000" step="1" required name="material_${m.id}" data-qty="${m.quantity}" ${materialsPolicy === 'customer' ? 'value="0" readonly title="Материалы предоставляет заказчик"' : 'placeholder="0"'}></td><td class="quote-line">—</td></tr>`).join('')}`).join('')}</tbody></table></div>`;
+  return `<div class="quote-scroll"><table class="quote-table"><thead><tr><th>Работа / материал</th><th>Объём</th><th>₽/ед.</th><th>Сумма</th></tr></thead><tbody>${items.map(r=>`
+    <tr class="quote-work"><th>${escape(r.label)}</th><td>${r.quantity} ${escape(r.unit)}</td>
+    <td><input type="number" class="quote-input" min="0" max="100000000" step="1" required aria-label="Цена ${escape(r.label)}" name="rate_${r.id}" data-qty="${r.quantity}" placeholder="0"></td><td class="quote-line">—</td></tr>
+    ${r.materials.map(m=>`<tr class="quote-material"><th>↳ ${escape(m.label)}</th><td>${m.quantity} ${escape(m.unit)}</td>
+    <td><input type="number" class="quote-input" min="0" max="100000000" step="1" required aria-label="Цена ${escape(m.label)}" name="material_${m.id}" data-qty="${m.quantity}" ${materialsPolicy === 'customer' ? 'value="0" readonly title="Материалы заказчика"' : 'placeholder="0"'}></td><td class="quote-line">—</td></tr>`).join('')}`).join('')}</tbody></table></div>`;
 }
 
 export function collectOfferPrices(form, items) {
@@ -103,17 +103,14 @@ export function updateOfferTotal(form) {
 }
 
 export function comparisonTable(items, offers, jobId, canSelect = true) {
-  if (!offers.length) return '<p class="muted">Пока нет предложений. Здесь появится сравнение по одинаковым позициям.</p>';
-  const price = (offer, id, kind, q) => {
-    const x = (kind === 'work' ? offer.rate_prices : offer.material_prices)?.[id];
-    return x == null ? '—' : money(Number(x) * q);
-  };
-  return `<div class="comparison-scroll" role="region" aria-label="Сравнение предложений по работам и материалам" tabindex="0">
-    <table class="comparison"><thead><tr><th>Расценка / объём</th>${offers.map(o => `<th>${escape(o.contractor_name || 'Исполнитель')}<small>${o.days} дн.</small></th>`).join('')}</tr></thead><tbody>
-    ${items.map(r => `<tr class="comparison-work"><th>${escape(r.label)}<small>Работа · ${r.quantity} ${escape(r.unit)}</small></th>${offers.map(o => `<td>${price(o,r.id,'work',r.quantity)}</td>`).join('')}</tr>
-    ${r.materials.map(m => `<tr class="comparison-material"><th>↳ ${escape(m.label)}<small>Материал · ${m.quantity} ${escape(m.unit)}</small></th>${offers.map(o => `<td>${price(o,m.id,'material',m.quantity)}</td>`).join('')}</tr>`).join('')}`).join('')}
-    <tr class="comparison-total"><th>ИТОГО</th>${offers.map(o => `<td>${money(o.amount)}</td>`).join('')}</tr>
-    <tr><th>Выбор</th>${offers.map(o => `<td>${canSelect && o.status === 'submitted' ? `<button class="btn small" data-action="select-offer" data-job="${jobId}" data-offer="${o.id}">Выбрать</button>` : `<span class="pill">${o.status === 'selected' ? 'Выбран' : 'Не выбран'}</span>`}</td>`).join('')}</tr>
+  if (!offers.length) return '<p class="muted">Предложений пока нет.</p>';
+  const price=(offer,id,kind,q)=>{const x=(kind==='work'?offer.rate_prices:offer.material_prices)?.[id];return x==null?'—':money(Number(x)*q)};
+  return `<div class="comparison-scroll" role="region" aria-label="Сравнение цен" tabindex="0">
+    <table class="comparison"><thead><tr><th>Позиция</th>${offers.map(o=>`<th>${escape(o.contractor_name||'Исполнитель')}<small>${o.days} дн.</small></th>`).join('')}</tr></thead><tbody>
+    ${items.map(r=>`<tr class="comparison-work"><th>${escape(r.label)} <span class="estimate-meta">${r.quantity} ${escape(r.unit)}</span></th>${offers.map(o=>`<td>${price(o,r.id,'work',r.quantity)}</td>`).join('')}</tr>
+    ${r.materials.map(m=>`<tr class="comparison-material"><th>↳ ${escape(m.label)} <span class="estimate-meta">${m.quantity} ${escape(m.unit)}</span></th>${offers.map(o=>`<td>${price(o,m.id,'material',m.quantity)}</td>`).join('')}</tr>`).join('')}`).join('')}
+    <tr class="comparison-total"><th>Итого</th>${offers.map(o=>`<td>${money(o.amount)}</td>`).join('')}</tr>
+    <tr class="comparison-choice"><th></th>${offers.map(o=>`<td>${canSelect&&o.status==='submitted'?`<button class="btn small" data-action="select-offer" data-job="${jobId}" data-offer="${o.id}">Выбрать</button>`:`<span class="pill">${o.status==='selected'?'Выбран':'Не выбран'}</span>`}</td>`).join('')}</tr>
     </tbody></table></div>`;
 }
 
