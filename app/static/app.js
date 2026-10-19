@@ -175,24 +175,22 @@ function postPage() {
   }
   const userCity = state.user?.city || '';
   const aiLabel = demo ? 'Собрать пример без ИИ' : 'Составить смету с ИИ';
-  main(intro(demo ? 'Интерактивное демо' : 'Бесплатно для заказчика','Просто опишите, что нужно сделать',
-    'Введите задачу своими словами, проверьте позиции и добавьте условия объекта. Никаких длинных сметных справочников.')+
+  main(intro(demo ? 'Демо' : 'Заказ','Что нужно сделать?')+
     `<div class="form-shell wide"><form id="${demo ? 'demo-post' : 'create-job'}">
-      <div class="card form-section"><div class="eyebrow">01 / Описание</div>
+      <div class="card form-section"><div class="eyebrow">01 · Описание</div>
         <div class="field" style="margin-top:15px"><label>Что нужно сделать? *</label>
           <textarea id="free-description" name="description" required minlength="20" maxlength="2500" placeholder="Например: нужно облицевать стены ванной плиткой, 18 м². Квартира на 5 этаже, лифта нет. Материалы должен предоставить мастер."></textarea>
-          <small class="smallprint">Без телефона, адреса квартиры и персональных данных — особенно в демо.</small></div>
+</div>
         <div class="hero-actions"><button type="button" class="btn" data-action="generate-draft">${aiLabel} ↗</button>
-          <small class="smallprint">${demo ? 'Это демонстрационная подборка по словам, не ИИ.' : 'ИИ создаёт черновик без цен. Доступно только с подключённым AI API.'}</small></div>
+</div>
         <div id="draft-questions" class="smallprint"></div>
       </div>
-      <div class="card form-section"><div class="eyebrow">02 / Проверьте расценки</div>
-        <h3 style="margin:10px 0">Работы и материалы</h3><p class="smallprint">Каждая расценка — одна работа и материалы. Количество и состав должны быть подтверждены вами.</p>
-        <div class="catalog-bar">${catalogSelect()}<button type="button" class="btn ghost small" data-action="add-catalog-rate">+ Из каталога</button>
-          <button type="button" class="btn ghost small" data-action="add-rate">+ Своя работа</button></div>
+      <div class="card form-section estimate-section"><div class="eyebrow">02 · Работы и материалы</div>
+        <div class="catalog-bar">${catalogSelect()}<button type="button" class="btn ghost small catalog-add" data-action="add-catalog-rate" aria-label="Добавить из каталога" title="Добавить из каталога">+</button>
+          <button type="button" class="btn ghost small" data-action="add-rate">+ Своя</button></div>
         <div id="estimate-editor">${renderEditor(state.estimateItems)}</div>
       </div>
-      <div class="card form-section"><div class="eyebrow">03 / Условия и место работ</div>
+      <div class="card form-section"><div class="eyebrow">03 · Условия</div>
         <div class="form-grid" style="margin-top:16px">
         <div class="field"><label>Название заявки *</label><input required name="title" minlength="6" maxlength="140" placeholder="Например, ремонт ванной"></div>
         <div class="field"><label>Город *</label><input required name="city" minlength="2" maxlength="70" value="${text(userCity)}" placeholder="Город"></div>
@@ -204,10 +202,10 @@ function postPage() {
         <div class="field"><label>Когда нужно начать</label><select name="start_when"><option>По договорённости</option><option>Как можно скорее</option><option>В течение недели</option><option>В течение месяца</option><option>Позже</option></select></div></div>
         <div class="field"><label>Другие условия, влияющие на стоимость</label>
           <textarea name="access_details" maxlength="1000" placeholder="Возможность разгрузки, парковка, расстояние переноски, работа по часам, наличие воды и электричества, демонтаж, вывоз мусора, потребность в лесах/подмостях..."></textarea></div>
-        <div class="notice">Указанные условия получат все исполнители. Цена должна учитывать подъём материалов на этаж, мобилизацию и другие необходимые работы.</div>
+
       </div>
       ${demo ? '<div class="notice warn">Публичное демо: здесь можно посмотреть подготовленный черновик. Данные не сохраняются, контакты не собираются.</div>' :
-        `<div class="card form-section"><div class="eyebrow">04 / Контакт и фото</div>
+        `<div class="card form-section"><div class="eyebrow">04 · Контакт и фото</div>
            <div class="field" style="margin-top:14px"><label>Телефон *</label><input name="phone" type="tel" minlength="10" maxlength="25" required placeholder="+7 900 000-00-00"><small class="smallprint">Скрыт от исполнителей до подтверждённой оплаты доступа.</small></div>
            <div class="field"><label>До 5 фотографий (5 МБ каждая)</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple></div>
            <label class="smallprint"><input type="checkbox" required name="consent"> Согласен на обработку данных и раскрытие контакта выбранному исполнителю после оплаты.</label>
@@ -242,22 +240,22 @@ async function detailPage(id) {
       ${j.access_details ? `<p class="smallprint" style="margin-top:12px;white-space:pre-wrap">${text(j.access_details)}</p>` : ''}</div>`;
     const rows=j.items.map(r=>`<div class="rate-preview"><div class="rate-preview-main"><strong>${text(r.label)}</strong><span>${r.quantity} ${text(r.unit)}</span></div>
       ${r.materials.map(m=>`<div class="rate-preview-material"><span>↳ ${text(m.label)}</span><span>${m.quantity} ${text(m.unit)}</span></div>`).join('')}</div>`).join('');
-    const owner=j.is_owner ? `<div class="card" style="margin-top:18px"><h3>Сравнение предложений · ${j.offers.length}</h3><p class="smallprint" style="margin:10px 0">Суммы рассчитаны по одинаковым объёмам. Таблицу можно прокрутить по горизонтали.</p>
+    const owner=j.is_owner ? `<div class="card" style="margin-top:18px"><h3>Сравнение · ${j.offers.length}</h3>
       ${comparisonTable(j.items,j.offers,j.id,j.status==='open')}
       ${j.status==='selected'?`<div class="hero-actions" style="margin-top:20px"><button class="btn ghost small" data-action="reopen" data-job="${j.id}">Вернуть в поиск</button>${!staticPreview?`<button class="btn small" data-action="complete" data-job="${j.id}">Работы завершены</button>`:''}</div>`:''}
       ${!staticPreview && ['open','selected'].includes(j.status)?`<button class="btn ghost danger small" data-action="cancel" data-job="${j.id}" style="margin-top:12px">Отменить заказ</button>`:''}
       </div>`:'';
     const ownOffer=(!j.is_owner && j.offers.length) ? `<div class="notice">Ваш отклик: ${currency(j.offers[0].amount)} · ${statusText(j.offers[0].status)}</div>`:'';
-    const quote=isContractor()&&j.status==='open'&&!j.offers.length ? `<div class="card offer-card"><h3>Подайте предложение</h3><div class="notice scope-notice">${text(PRICE_SCOPE)}</div>${j.materials_policy==='customer'?'<div class="notice">Материалы предоставляет заказчик: стоимость материалов в вашем предложении должна быть 0 ₽.</div>':''}
-      <form id="offer-form" data-job="${j.id}"><div class="field"><label>Цена за единицу по каждой позиции</label>${offerFields(j.items,j.materials_policy)}</div>
-        <div class="quote-grand">Итог: <strong id="offer-sum">Заполните все цены</strong></div>
+    const quote=isContractor()&&j.status==='open'&&!j.offers.length ? `<div class="card offer-card"><h3>Подайте предложение</h3><details class="scope-details"><summary>Что входит в цену</summary><p>${text(PRICE_SCOPE)}</p></details>${j.materials_policy==='customer'?'<div class="notice">Материалы предоставляет заказчик: стоимость материалов в вашем предложении должна быть 0 ₽.</div>':''}
+      <form id="offer-form" data-job="${j.id}"><div class="field quote-field">${offerFields(j.items,j.materials_policy)}</div>
+        <div class="quote-grand">Итого <strong id="offer-sum">—</strong></div>
         <div class="form-grid"><div class="field"><label>Срок, дней</label><input name="days" type="number" min="1" max="365" value="7" required></div></div>
         <div class="field"><label>Примечание / исключения (если есть)</label><textarea name="note" maxlength="1500"></textarea></div>
         <div id="fee-preview" class="smallprint"></div><label class="smallprint"><input type="checkbox" required name="accept_scope"> Я включил все обязательные расходы в расценки и указал исключения.</label><button class="btn block" type="submit">Отправить бесплатно</button></form></div>` : '';
     const lock=isContractor()&&picked&&j.offers.some(o=>o.id===picked.id)?`<div class="card"><h3>Заказчик выбрал вас</h3><p class="smallprint">Стоимость открытия контакта: ${formatFee(picked.amount)}</p><button class="btn block" disabled>Оплатить и открыть контакт</button><p class="smallprint">Оплата ещё не подключена, данные закрыты.</p></div>`:'';
     main(intro('Описание заказа',j.title,`${j.city} · ${j.category}${staticPreview?' · ДЕМОНСТРАЦИЯ':''}`)+
        `<div class="page-grid"><div><div class="card" style="margin-bottom:18px"><div class="status-row"><span class="pill">${statusText(j.status)}</span><span class="smallprint">№ ${j.id}</span></div>
-       <p style="white-space:pre-wrap;margin:18px 0">${text(j.description)}</p>${photos}<h3>Расценки · работы и материалы</h3>${rows || '<p class="muted">Позиции не указаны.</p>'}</div>${owner}</div>
+       <p style="white-space:pre-wrap;margin:18px 0">${text(j.description)}</p>${photos}<h3>Работы и материалы</h3>${rows || '<p class="muted">Позиции не указаны.</p>'}</div>${owner}</div>
        <aside class="aside">${conditions}${ownOffer}${quote}${lock}${!state.user&&!staticPreview?'<a class="btn block" href="/auth" data-link>Войти, чтобы откликнуться</a>':''}</aside></div>`);
     rewritePreviewLinks();
   } catch(e) { main(intro('Заявка','Ошибка загрузки')+empty('Не удалось открыть',e.message,'К заданиям','/jobs')); }
