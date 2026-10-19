@@ -1,3 +1,98 @@
+const staticPreview = document.documentElement.dataset.staticPreview === 'true';
+const previewBase = staticPreview ? location.pathname.replace(/(?:index\.html)?$/, '') : '';
+const demoExamples = [
+  {
+    id: 101, title: 'Укладка плитки в ванной', category: 'Ванная и плитка',
+    description: 'Демонстрационный пример. Требуется облицевать стены и пол плиткой, подготовить основание и выполнить затирку швов.',
+    city: 'Казань', budget: 90000, start_when: 'В течение месяца', status: 'open',
+    photo_ids: [], items: [
+      { label: 'Облицовка стен плиткой', quantity: 18, unit: 'м²', note: 'Стены ванной' },
+      { label: 'Укладка напольной плитки', quantity: 6, unit: 'м²', note: 'Пол' }
+    ], offers: [
+      { id: 501, amount: 79000, days: 9, status: 'submitted', contractor_name: 'Пример предложения А', note: 'Включены подготовка поверхности и укладка.' },
+      { id: 502, amount: 85500, days: 7, status: 'submitted', contractor_name: 'Пример предложения Б', note: 'Включены облицовка и затирка, материалы отдельно.' }
+    ]
+  },
+  {
+    id: 102, title: 'Замена электропроводки', category: 'Электрика',
+    description: 'Демонстрационный пример. Требуется заменить проводку в двухкомнатной квартире, сделать новые линии для кухни и установить розетки.',
+    city: 'Краснодар', budget: 75000, start_when: 'В течение недели', status: 'open',
+    photo_ids: [], items: [
+      { label: 'Монтаж кабельных линий', quantity: 140, unit: 'м', note: 'Черновой монтаж' },
+      { label: 'Установка розеток', quantity: 22, unit: 'шт.', note: '' }
+    ], offers: [
+      { id: 503, amount: 68000, days: 5, status: 'submitted', contractor_name: 'Пример предложения В', note: 'Без стоимости кабеля и механизмов.' }
+    ]
+  },
+  {
+    id: 103, title: 'Штукатурка и покраска стен', category: 'Ремонт квартиры',
+    description: 'Демонстрационный пример. Требуется подготовить стены в квартире, выровнять, загрунтовать и покрасить.',
+    city: 'Москва', budget: 160000, start_when: 'По договорённости', status: 'open',
+    photo_ids: [], items: [
+      { label: 'Штукатурка стен', quantity: 95, unit: 'м²', note: 'Под покраску' },
+      { label: 'Окраска стен', quantity: 95, unit: 'м²', note: 'Два слоя' }
+    ], offers: []
+  }
+];
+const previewRoute = () => new URLSearchParams(location.search).get('view') || '/';
+const previewQuery = () => {
+  const query = new URLSearchParams(location.search);
+  query.delete('view');
+  return query;
+};
+const previewUrl = route => {
+  const [page, query] = route.split('?');
+  return `${previewBase}?view=${encodeURIComponent(page)}${query ? '&' + query : ''}`;
+};
+const rewritePreviewLinks = () => {
+  if (!staticPreview) return;
+  document.querySelectorAll('a[data-link]').forEach(link => {
+    const href = link.getAttribute('href');
+    if (href?.startsWith('/')) link.setAttribute('href', previewUrl(href));
+  });
+};
+const demonstrationRequest = async (url, options = {}) => {
+  const method = (options.method || 'GET').toUpperCase();
+  if (url === '/api/me' && method === 'GET') return { user: null, csrf: null };
+  if (url.startsWith('/api/jobs?') && method === 'GET') {
+    const filter = new URL(url, location.origin).searchParams;
+    const q = (filter.get('q') || '').toLocaleLowerCase('ru');
+    const city = (filter.get('city') || '').toLocaleLowerCase('ru');
+    const category = filter.get('category') || '';
+    return { jobs: demoExamples.filter(job =>
+      job.status === 'open' &&
+      (!q || `${job.title} ${job.description}`.toLocaleLowerCase('ru').includes(q)) &&
+      (!city || job.city.toLocaleLowerCase('ru').includes(city)) &&
+      (!category || job.category === category)
+    ) };
+  }
+  const selected = url.match(/^\/api\/jobs\/(\d+)\/select\/(\d+)$/);
+  if (selected && method === 'POST') {
+    const job = demoExamples.find(item => item.id === Number(selected[1]));
+    if (!job) throw Error('Пример задания не найден');
+    if (job.status !== 'open') throw Error('Исполнитель уже выбран');
+    const offer = job.offers.find(item => item.id === Number(selected[2]));
+    if (!offer) throw Error('Пример предложения не найден');
+    job.status = 'selected';
+    job.offers.forEach(item => { item.status = item === offer ? 'selected' : 'rejected'; });
+    return { ok: true, demonstration: true };
+  }
+  const reopened = url.match(/^\/api\/jobs\/(\d+)\/reopen$/);
+  if (reopened && method === 'POST') {
+    const job = demoExamples.find(item => item.id === Number(reopened[1]));
+    if (!job) throw Error('Пример задания не найден');
+    job.status = 'open';
+    job.offers.forEach(item => { item.status = 'submitted'; });
+    return { ok: true, demonstration: true };
+  }
+  const jobMatch = url.match(/^\/api\/jobs\/(\d+)$/);
+  if (jobMatch && method === 'GET') {
+    const job = demoExamples.find(item => item.id === Number(jobMatch[1]));
+    if (!job) throw Error('Пример задания не найден');
+    return { ...job, is_owner: true };
+  }
+  throw Error('Это демонстрация интерфейса. Реальные заявки, регистрация и платежи здесь отключены.');
+};
 const root = document.getElementById('app');
 const header = document.getElementById('header-actions');
 const nav = document.getElementById('mobile-nav');
@@ -7,14 +102,15 @@ const state = { user: null, csrf: null, photoUploads: [] };
 const currency = value => value == null ? 'По договорённости' : new Intl.NumberFormat('ru-RU').format(value) + ' ₽';
 const escapeHtml = x => String(x ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const text = escapeHtml;
-const params = () => new URLSearchParams(location.search);
-const path = () => location.pathname;
+const params = () => staticPreview ? previewQuery() : new URLSearchParams(location.search);
+const path = () => staticPreview ? previewRoute() : location.pathname;
 const isCustomer = () => state.user?.role === 'customer';
 const isContractor = () => state.user?.role === 'contractor';
 const fee = amount => amount <= 5000 ? 100 : amount <= 50000 ? 100 + .015 * (amount - 5000) : amount <= 500000 ? 775 + .01 * (amount - 50000) : 5275 + .005 * (amount - 500000);
 const formatFee = amount => currency(Math.round(fee(amount)));
 
 async function api(url, options={}) {
+  if (staticPreview) return demonstrationRequest(url, options);
   const init = { credentials:'same-origin', ...options, headers:{ ...options.headers } };
   if(options.body && !(options.body instanceof FormData)) init.headers['Content-Type']='application/json';
   if(options.method && !['GET','HEAD'].includes(options.method.toUpperCase())) init.headers['X-CSRF-Token']=state.csrf || '';
@@ -31,11 +127,21 @@ async function api(url, options={}) {
   return body;
 }
 const toast = (msg) => { const node=document.getElementById('toast');node.textContent=msg;node.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>node.classList.remove('show'),4000); };
-const navTo = url => { history.pushState({},'',url); window.scrollTo(0,0); render(); };
+const navTo = url => {
+  if (staticPreview && url.includes('view=')) {
+    const query = new URL(url, location.href).searchParams;
+    const page = query.get('view') || '/';
+    query.delete('view');
+    url = page + (query.toString() ? '?' + query.toString() : '');
+  }
+  history.pushState({}, '', staticPreview ? previewUrl(url) : url);
+  window.scrollTo(0, 0);
+  render();
+};
 const intro = (label,title,description='') => `<div class="page-head"><div class="eyebrow">${text(label)}</div><h1 style="margin-top:12px">${text(title)}</h1>${description?`<p>${text(description)}</p>`:''}</div>`;
 const empty = (title,description,button='',url='/post') => `<div class="empty"><div style="font-size:30px;color:#36795e">✧</div><h3>${text(title)}</h3><p>${text(description)}</p>${button?`<a class="btn" href="${url}" data-link>${text(button)}</a>`:''}</div>`;
 const statusText = v => ({ open:'Приём предложений',selected:'Исполнитель выбран',completed:'Завершён',cancelled:'Отменён',submitted:'Предложение отправлено',rejected:'Не выбрано',withdrawn:'Отозвано' })[v] || v;
-const card = item => `<a class="card job-card" href="/jobs/${item.id}" data-link><div class="job-card-head"><span class="pill">${text(item.category)}</span><span class="smallprint">${text(item.city)}</span></div><h3>${text(item.title)}</h3><p>${text(item.description).slice(0,190)}${item.description.length>190?'…':''}</p><div class="job-card-bottom"><span class="price">${currency(item.budget)}</span><span class="smallprint">${text(item.start_when)} &nbsp; ↗</span></div></a>`;
+const card = item => `<a class="card job-card" href="/jobs/${item.id}" data-link>${staticPreview ? '<div class="smallprint" style="margin-bottom:8px">ДЕМОНСТРАЦИОННЫЙ ПРИМЕР · НЕ РЕАЛЬНЫЙ ЗАКАЗ</div>' : ''}<div class="job-card-head"><span class="pill">${text(item.category)}</span><span class="smallprint">${text(item.city)}</span></div><h3>${text(item.title)}</h3><p>${text(item.description).slice(0,190)}${item.description.length>190?'…':''}</p><div class="job-card-bottom"><span class="price">${currency(item.budget)}</span><span class="smallprint">${text(item.start_when)} &nbsp; ↗</span></div></a>`;
 
 function updateNav() {
   const account = state.user ? `<a class="btn ghost small" href="${isCustomer()?'/my-jobs':'/my-offers'}" data-link>Личный кабинет</a><button class="btn small primary" data-action="logout">Выйти</button>` : `<a class="btn ghost small" href="/auth" data-link>Войти</a><a class="btn small primary" href="/auth?mode=register" data-link>Регистрация</a>`;
@@ -51,12 +157,26 @@ root.innerHTML=`<section class="hero"><div class="shell hero-wrap"><div><div cla
 }
 async function jobsPage(){
   const p=params(); const city=p.get('city')||''; const cat=p.get('category')||''; const q=p.get('q')||'';
-  main(intro('Для исполнителей','Найдите подходящую работу','Реальные опубликованные заявки, без открытых телефонов и адресов.')+`<form id="filter" class="filters"><input name="q" aria-label="Поиск" placeholder="Название или вид работ" value="${text(q)}"><input name="city" aria-label="Город" placeholder="Город" value="${text(city)}"><select name="category" aria-label="Категория"><option value="">Все категории</option>${categories.map(c=>`<option ${cat===c?'selected':''} value="${text(c)}">${text(c)}</option>`).join('')}</select><button class="btn" type="submit">Найти</button></form><div id="job-feed">${empty('Загрузка','Получаем актуальные заявки')}</div>`);
+  main(intro('Для исполнителей','Найдите подходящую работу',staticPreview ? 'Примеры интерфейса, не реальные заказы. Поиск и фильтры можно попробовать.' : 'Реальные опубликованные заявки, без открытых телефонов и адресов.')+`<form id="filter" class="filters"><input name="q" aria-label="Поиск" placeholder="Название или вид работ" value="${text(q)}"><input name="city" aria-label="Город" placeholder="Город" value="${text(city)}"><select name="category" aria-label="Категория"><option value="">Все категории</option>${categories.map(c=>`<option ${cat===c?'selected':''} value="${text(c)}">${text(c)}</option>`).join('')}</select><button class="btn" type="submit">Найти</button></form><div id="job-feed">${empty('Загрузка','Получаем актуальные заявки')}</div>`);
   try {const v=await api('/api/jobs?'+new URLSearchParams({city,category:cat,q}));document.getElementById('job-feed').innerHTML=v.jobs.length?v.jobs.map(card).join(''):empty('Пока нет заявок','В этом городе или категории ещё нет открытых заданий.','Разместить заказ');}
   catch(e){ document.getElementById('job-feed').innerHTML=empty('Не удалось загрузить задания',e.message); }
 }
 function itemInputs(index){ return `<div class="item-row"><input name="label" maxlength="160" placeholder="Наименование работы" aria-label="Работа ${index}" required><input name="qty" type="number" min="0.01" step="any" placeholder="Кол-во" aria-label="Количество" required><input name="unit" maxlength="12" value="м²" aria-label="Ед. изм." required><button type="button" data-action="remove-item" aria-label="Удалить позицию">×</button></div>`; }
 function postPage(){
+ if (staticPreview) {
+  main(intro('Пример размещения','Создайте черновик задания','В демо данные не отправляются на сервер и не сохраняются. Контактные данные не вводите.') +
+    `<div class="form-shell"><form id="demo-post" class="card form-section">
+      <h3>01 / Описание задачи</h3>
+      <div class="field"><label>Название работы</label><input name="title" required minlength="6" maxlength="140" placeholder="Например, ремонт ванной комнаты"></div>
+      <div class="field"><label>Описание</label><textarea name="description" required minlength="15" maxlength="1200" placeholder="Укажите объём и условия работ (без личных данных)"></textarea></div>
+      <div class="form-grid"><div class="field"><label>Город</label><input name="city" required placeholder="Город"></div>
+      <div class="field"><label>Категория</label><select name="category">${categories.map(c => `<option>${text(c)}</option>`).join('')}</select></div>
+      <div class="field"><label>Ориентировочный бюджет, ₽</label><input name="budget" type="number" min="1" step="1" placeholder="Не обязательно"></div></div>
+      <div class="notice warn">Это просмотр формы. Публикация, загрузка фото и сбор контактов отключены на GitHub Pages.</div>
+      <button type="submit" class="btn">Предпросмотр черновика ↗</button>
+    </form></div>`);
+  return;
+ }
  if(!state.user){main(intro('Размещение заказа','Создайте бесплатную заявку')+empty('Нужен аккаунт','Зарегистрируйтесь как заказчик, чтобы получать предложения мастеров.','Войти или зарегистрироваться','/auth?mode=register'));return;}
  if(!isCustomer()){main(intro('Размещение заказа','Заявки размещают заказчики')+empty('Это аккаунт исполнителя','Для размещения заказа используйте аккаунт заказчика.'));return;}
  main(intro('Бесплатно для заказчика','Расскажите, что нужно сделать','Чем конкретнее описание и объёмы, тем проще исполнителям предложить цену.')+`<div class="form-shell"><form id="create-job"><div class="card form-section"><h3>01 / Основное</h3><div class="field"><label>Название работы *</label><input name="title" minlength="6" maxlength="140" required placeholder="Например, положить плитку в ванной"></div><div class="field"><label>Описание *</label><textarea name="description" minlength="15" maxlength="4000" required placeholder="Что нужно сделать, состояние объекта, особенности... "></textarea></div><div class="form-grid"><div class="field"><label>Город *</label><input name="city" required minlength="2" maxlength="70" value="${text(state.user.city)}"></div><div class="field"><label>Категория *</label><select name="category">${categories.map(c=>`<option>${text(c)}</option>`).join('')}</select></div><div class="field"><label>Ориентировочный бюджет, ₽</label><input name="budget" min="1" step="1" type="number" placeholder="Не обязательно"></div><div class="field"><label>Когда нужно начать</label><select name="start_when"><option>По договорённости</option><option>Как можно скорее</option><option>В течение недели</option><option>В течение месяца</option><option>Позже</option></select></div></div></div>
@@ -74,26 +194,48 @@ async function detailPage(id){
  const offerForm=isContractor()&&j.status==='open'&&!hasOffer?`<div class="card"><h3>Ваше предложение</h3><p class="muted" style="margin-bottom:15px;font-size:13px">Отклик бесплатный. За контакт платит только выбранный мастер.</p><form id="offer-form" data-job="${j.id}"><div class="form-grid"><div class="field"><label>Ваша цена, ₽</label><input name="amount" type="number" min="1" max="1000000000" required placeholder="100000"></div><div class="field"><label>Срок, дней</label><input name="days" type="number" min="1" max="365" value="7" required></div></div><div class="field"><label>Что входит в цену</label><textarea name="note" maxlength="1500" placeholder="Материалы, условия, уточнения... "></textarea></div><div id="fee-preview" class="smallprint" style="margin-bottom:13px"></div><button class="btn block">Отправить бесплатно</button></form></div>`:'';
  const locked=isContractor()&&offer?.status==='selected'&&hasOffer?`<div class="card"><h3>Вы выбраны заказчиком</h3><p>Чтобы связаться с заказчиком, необходимо оплатить открытие контакта.</p><div style="font-size:26px;font-weight:800;margin:13px 0">${formatFee(offer.amount)}</div><button disabled class="btn block">Оплатить и открыть контакт</button><div class="smallprint" style="margin-top:10px">Платёжный провайдер ещё не подключён. Контакт надёжно скрыт.</div></div>`:'';
  const work=j.items.length?`<table class="table"><thead><tr><th>Работа</th><th>Количество</th><th>Примечание</th></tr></thead><tbody>${j.items.map(i=>`<tr><td>${text(i.label)}</td><td>${i.quantity} ${text(i.unit)}</td><td>${text(i.note)}</td></tr>`).join('')}</tbody></table>`:'<p class="muted">Заказчик не указал отдельные объёмы работ.</p>';
- main(intro('Описание заказа',j.title,`${j.city} · ${j.category}`)+`<div class="page-grid"><div><div class="card" style="margin-bottom:20px"><div class="status-row"><span class="pill">${statusText(j.status)}</span><span class="smallprint">Заказ #${j.id}</span></div><p style="white-space:pre-wrap;margin-top:18px">${text(j.description)}</p>${photos}<div style="margin-top:26px"><h3>Ведомость объёмов</h3><div style="margin-top:12px">${work}</div></div></div>${ownerOffers}</div><aside class="aside"><div class="card" style="margin-bottom:15px"><h3>Условия заказа</h3><div class="info-row"><span class="muted">Бюджет</span><span>${currency(j.budget)}</span></div><div class="info-row"><span class="muted">Город</span><span>${text(j.city)}</span></div><div class="info-row"><span class="muted">Начало</span><span>${text(j.start_when)}</span></div><p class="smallprint" style="margin-top:15px">Цена окончательно согласовывается сторонами напрямую.</p></div>${myOffer}${offerForm}${locked}${!state.user?'<a class="btn block" href="/auth" data-link>Войти, чтобы откликнуться</a>':''}</aside></div>`);
+ main(intro('Описание заказа',j.title,`${j.city} · ${j.category}${staticPreview ? ' · ДЕМОНСТРАЦИОННЫЙ ПРИМЕР' : ''}`)+`<div class="page-grid"><div><div class="card" style="margin-bottom:20px"><div class="status-row"><span class="pill">${statusText(j.status)}</span><span class="smallprint">Заказ #${j.id}</span></div><p style="white-space:pre-wrap;margin-top:18px">${text(j.description)}</p>${photos}<div style="margin-top:26px"><h3>Ведомость объёмов</h3><div style="margin-top:12px">${work}</div></div></div>${ownerOffers}</div><aside class="aside"><div class="card" style="margin-bottom:15px"><h3>Условия заказа</h3><div class="info-row"><span class="muted">Бюджет</span><span>${currency(j.budget)}</span></div><div class="info-row"><span class="muted">Город</span><span>${text(j.city)}</span></div><div class="info-row"><span class="muted">Начало</span><span>${text(j.start_when)}</span></div><p class="smallprint" style="margin-top:15px">Цена окончательно согласовывается сторонами напрямую.</p></div>${myOffer}${offerForm}${locked}${!state.user?'<a class="btn block" href="/auth" data-link>Войти, чтобы откликнуться</a>':''}</aside></div>`);
  }catch(e){main(intro('Заявка','Не удалось открыть')+empty('Ошибка загрузки',e.message,'Вернуться к заказам','/jobs'));}
 }
-async function myJobs(){if(!isCustomer())return guardPage('Мои заказы');main(intro('Личный кабинет','Мои заказы')+'<div id="myfeed">Загрузка...</div>');try{const d=await api('/api/my-jobs');document.getElementById('myfeed').innerHTML=d.jobs.length?d.jobs.map(j=>`<a href="/jobs/${j.id}" data-link class="card job-card"><div class="job-card-head"><span class="pill">${text(statusText(j.status))}</span><span class="smallprint">#${j.id}</span></div><h3>${text(j.title)}</h3><div class="job-card-bottom"><span class="price">${currency(j.budget)}</span><span>${text(j.city)} ↗</span></div></a>`).join(''):empty('Пока нет заказов','Создайте первую заявку и получите предложения мастеров.','Разместить заказ');}catch(e){toast(e.message)}}
-async function myOffers(){if(!isContractor())return guardPage('Мои предложения');main(intro('Личный кабинет','Мои предложения')+'<div id="myfeed">Загрузка...</div>');try{const d=await api('/api/my-offers');document.getElementById('myfeed').innerHTML=d.offers.length?d.offers.map(o=>`<a href="/jobs/${o.job_id}" data-link class="card job-card"><div class="job-card-head"><span class="pill ${o.status==='selected'?'':'neutral'}">${text(statusText(o.status))}</span><span class="smallprint">${text(o.city)}</span></div><h3>${text(o.title)}</h3><div class="job-card-bottom"><span class="price">${currency(o.amount)}</span><span>Срок ${o.days} дн. ↗</span></div></a>`).join(''):empty('Пока нет предложений','Найдите подходящую заявку и предложите свою цену бесплатно.','Найти работу','/jobs');}catch(e){toast(e.message)}}
+async function myJobs(){if(staticPreview){main(intro('Пример кабинета','Мои заказы','Пример заявок для демонстрации сравнения предложений.')+`<div class="notice warn" style="margin-bottom:20px">Вымышленные данные · изменения действуют только до обновления страницы</div>`+demoExamples.map(card).join(''));return;}if(!isCustomer())return guardPage('Мои заказы');main(intro('Личный кабинет','Мои заказы')+'<div id="myfeed">Загрузка...</div>');try{const d=await api('/api/my-jobs');document.getElementById('myfeed').innerHTML=d.jobs.length?d.jobs.map(j=>`<a href="/jobs/${j.id}" data-link class="card job-card"><div class="job-card-head"><span class="pill">${text(statusText(j.status))}</span><span class="smallprint">#${j.id}</span></div><h3>${text(j.title)}</h3><div class="job-card-bottom"><span class="price">${currency(j.budget)}</span><span>${text(j.city)} ↗</span></div></a>`).join(''):empty('Пока нет заказов','Создайте первую заявку и получите предложения мастеров.','Разместить заказ');}catch(e){toast(e.message)}}
+async function myOffers(){if(staticPreview){main(intro('Пример кабинета','Мои предложения','Когда мастер отправит предложение, оно появится в его личном кабинете.')+empty('Отклики пока демонстрационные','Реальные отклики будут доступны после подключения сервера.','Посмотреть примеры заданий','/jobs'));return;}if(!isContractor())return guardPage('Мои предложения');main(intro('Личный кабинет','Мои предложения')+'<div id="myfeed">Загрузка...</div>');try{const d=await api('/api/my-offers');document.getElementById('myfeed').innerHTML=d.offers.length?d.offers.map(o=>`<a href="/jobs/${o.job_id}" data-link class="card job-card"><div class="job-card-head"><span class="pill ${o.status==='selected'?'':'neutral'}">${text(statusText(o.status))}</span><span class="smallprint">${text(o.city)}</span></div><h3>${text(o.title)}</h3><div class="job-card-bottom"><span class="price">${currency(o.amount)}</span><span>Срок ${o.days} дн. ↗</span></div></a>`).join(''):empty('Пока нет предложений','Найдите подходящую заявку и предложите свою цену бесплатно.','Найти работу','/jobs');}catch(e){toast(e.message)}}
 function guardPage(title){main(intro('Личный кабинет',title)+empty('Недоступно для этого аккаунта','Войдите с соответствующей ролью.','Перейти ко входу','/auth'));}
 function authPage(){
+ if (staticPreview) {
+   main(intro('Демо-режим','Личный кабинет', 'В этой опубликованной версии можно оценить интерфейс без регистрации.') +
+     `<div class="card" style="max-width:660px"><h3>Регистрация пока отключена</h3>
+      <p class="muted" style="margin:14px 0 20px">GitHub Pages не запускает сервер регистрации и не хранит заказы. Здесь нельзя оставлять телефон или пароль. Просмотрите демонстрационные заявки и калькулятор.</p>
+      <div class="hero-actions"><a class="btn" href="/jobs" data-link>Посмотреть заявки ↗</a><a class="btn ghost" href="/pricing" data-link>Рассчитать тариф</a></div>
+     </div>`);
+   return;
+ }
  const register=params().get('mode')==='register';
  main(`<div class="auth-page"><div class="eyebrow">Личный кабинет</div><h1 style="margin-top:12px">${register?'Создать аккаунт':'С возвращением'}</h1><p class="muted">${register?'Зарегистрируйтесь как заказчик или исполнитель.':'Войдите, чтобы управлять заявками.'}</p><form id="auth-form" class="card"><input type="hidden" name="mode" value="${register?'register':'login'}">${register?`<div class="field"><label>Я хочу</label><div class="role-picker"><label><input name="role" type="radio" value="customer" checked>Заказывать работы</label><label><input name="role" type="radio" value="contractor">Находить работу</label></div></div><div class="field"><label>Как к вам обращаться</label><input name="name" minlength="2" maxlength="80" required placeholder="Имя или название компании"></div><div class="field"><label>Город</label><input name="city" minlength="2" maxlength="70" required placeholder="Например, Казань"></div>`:''}<div class="field"><label>Email</label><input name="email" type="email" maxlength="160" required autocomplete="email" placeholder="you@example.ru"></div><div class="field"><label>Пароль</label><input name="password" type="password" minlength="10" maxlength="128" required autocomplete="${register?'new-password':'current-password'}" placeholder="Не менее 10 символов"></div><button class="btn block">${register?'Зарегистрироваться':'Войти'}</button><p class="smallprint" style="margin-top:17px;text-align:center">${register?'Уже есть аккаунт?':'Впервые здесь?'} <a style="color:var(--green);font-weight:800" href="${register?'/auth':'/auth?mode=register'}" data-link>${register?'Войти':'Создать аккаунт'}</a></p></form></div>`);
 }
-function profilePage(){if(!state.user)return guardPage('Профиль');main(intro('Личный кабинет','Мой профиль')+`<div class="form-shell"><form id="profile-form" class="card"><div class="field"><label>Отображаемое имя</label><input name="name" required minlength="2" maxlength="80" value="${text(state.user.display_name)}"></div><div class="field"><label>Город</label><input name="city" required minlength="2" maxlength="70" value="${text(state.user.city)}"></div>${isContractor()?`<div class="field"><label>Специализации</label><input name="specialties" maxlength="220" value="${text(state.user.specialties)}" placeholder="Плитка, сантехника, отделка"></div><div class="field"><label>О себе и опыте</label><textarea name="about" maxlength="900">${text(state.user.about)}</textarea></div>`:''}<div class="notice" style="margin-bottom:18px">${isContractor()?'Профиль исполнителя':'Профиль заказчика'}. Подтверждённые рейтинги появятся после запуска заказов и реальной истории выполнения.</div><button class="btn">Сохранить изменения</button></form></div>`)}
+function profilePage(){if(staticPreview){authPage();return;}if(!state.user)return guardPage('Профиль');main(intro('Личный кабинет','Мой профиль')+`<div class="form-shell"><form id="profile-form" class="card"><div class="field"><label>Отображаемое имя</label><input name="name" required minlength="2" maxlength="80" value="${text(state.user.display_name)}"></div><div class="field"><label>Город</label><input name="city" required minlength="2" maxlength="70" value="${text(state.user.city)}"></div>${isContractor()?`<div class="field"><label>Специализации</label><input name="specialties" maxlength="220" value="${text(state.user.specialties)}" placeholder="Плитка, сантехника, отделка"></div><div class="field"><label>О себе и опыте</label><textarea name="about" maxlength="900">${text(state.user.about)}</textarea></div>`:''}<div class="notice" style="margin-bottom:18px">${isContractor()?'Профиль исполнителя':'Профиль заказчика'}. Подтверждённые рейтинги появятся после запуска заказов и реальной истории выполнения.</div><button class="btn">Сохранить изменения</button></form></div>`)}
 function pricing(){main(intro('Открытые условия','Прозрачные тарифы','Заказчикам бесплатно. Мастера не платят за отклики. Плата возникает лишь когда заказчик выбрал именно вас.')+`<div class="notice warn" style="margin-bottom:24px">Тестовый режим: оплата контактов ещё не подключена, поэтому списания сейчас невозможны.</div><div class="fee-grid"><div class="fee-card"><div class="smallprint">Заказ до 5 000 ₽</div><strong class="price">100 ₽</strong><div class="smallprint">Фиксированная плата</div></div><div class="fee-card"><div class="smallprint">До 50 000 ₽</div><strong class="price">+ 1,5%</strong><div class="smallprint">С суммы сверх 5 000 ₽</div></div><div class="fee-card"><div class="smallprint">До 500 000 ₽</div><strong class="price">+ 1%</strong><div class="smallprint">С суммы сверх 50 000 ₽</div></div><div class="fee-card"><div class="smallprint">Свыше 500 000 ₽</div><strong class="price">+ 0,5%</strong><div class="smallprint">С суммы сверх 500 000 ₽</div></div></div><div class="card" style="margin-top:24px;max-width:670px"><h3>Рассчитайте цену контакта</h3><div class="field" style="margin-top:20px"><label>Сумма предложения, ₽</label><input type="number" id="calc-amount" value="100000" min="1"></div><div class="notice" id="calc-fee">За контакт: ${formatFee(100000)}</div><p class="smallprint">Прогрессивная шкала без резкого снижения цены при переходе между диапазонами.</p></div>`);}
 function how(){main(intro('О сервисе','Как работает «Подряди»','Мы соединяем заказчиков с мастерами, а решение всегда остаётся за вами.')+`<div class="steps"><div class="step"><div class="step-no">01 / ЗАКАЗЧИК</div><h3>Опишите работы</h3><p>Фотографии, город, объёмы, срок и ориентировочная цена. Публикация бесплатна.</p></div><div class="step"><div class="step-no">02 / ИСПОЛНИТЕЛЬ</div><h3>Предложите условия</h3><p>Цена, срок, уточнения. За отклик платить не нужно.</p></div><div class="step"><div class="step-no">03 / ВЫБОР</div><h3>Сравните предложения</h3><p>Заказчик выбирает одного мастера. Он оплачивает доступ к контакту после подключения эквайринга.</p></div></div><div class="page-content" style="padding-top:30px"><h2>Кто оплачивает строительные работы?</h2><p>Заказчик и подрядчик договариваются напрямую. Платформа не принимает предоплаты за ремонт, не управляет строительными платежами и не выступает подрядчиком.</p><h2>Реальные ли здесь рейтинги?</h2><p>В MVP нет вымышленных оценок. В будущем отзывы будут доступны после подтверждения фактически выполненного заказа.</p></div>`)}
 function roadmap(){main(intro('О запуске','План развития','Это предзапусковой прототип, а не действующая платёжная площадка.')+`<div class="page-content card"><h2>Что доступно в прототипе</h2><ul><li>Аккаунты заказчиков и исполнителей</li><li>Заявки с ведомостью работ, фотографиями и статусами</li><li>Отклики, сравнение цен и выбор исполнителя</li><li>Защита контактов до подтверждённой оплаты</li></ul><h2>Перед публичным запуском</h2><ul><li>Разместить данные российских пользователей в инфраструктуре, соответствующей требованиям 152-ФЗ</li><li>Подключить настоящий эквайринг с проверяемым серверным webhook, чеки, возвраты</li><li>Верифицировать телефоны, документы исполнителей и модерировать объявления и фотографии</li><li>Подготовить договоры, политику обработки данных и поддержку обращений</li><li>Провести пилот в одном городе без вымышленных отзывов и статистики</li></ul></div>`)}
-async function render(){updateNav();const p=path();if(p==='/')home();else if(p==='/jobs')await jobsPage();else if(/^\/jobs\/\d+$/.test(p))await detailPage(Number(p.split('/').pop()));else if(p==='/post')postPage();else if(p==='/my-jobs')await myJobs();else if(p==='/my-offers')await myOffers();else if(p==='/profile')profilePage();else if(p==='/auth')authPage();else if(p==='/pricing')pricing();else if(p==='/how')how();else if(p==='/roadmap')roadmap();else main(intro('Ошибка 404','Такой страницы нет')+empty('Страница не найдена','Возможно, её адрес изменился.','На главную','/'));}
+async function render(){updateNav();const p=path();if(p==='/')home();else if(p==='/jobs')await jobsPage();else if(/^\/jobs\/\d+$/.test(p))await detailPage(Number(p.split('/').pop()));else if(p==='/post')postPage();else if(p==='/my-jobs')await myJobs();else if(p==='/my-offers')await myOffers();else if(p==='/profile')profilePage();else if(p==='/auth')authPage();else if(p==='/pricing')pricing();else if(p==='/how')how();else if(p==='/roadmap')roadmap();else main(intro('Ошибка 404','Такой страницы нет')+empty('Страница не найдена','Возможно, её адрес изменился.','На главную','/'));rewritePreviewLinks();}
 function formPayload(form){const f=new FormData(form);return Object.fromEntries(f.entries());}
 async function submitForm(form){
  const fields=formPayload(form);
  try{
   const button=form.querySelector('button[type=submit],button:not([type])');if(button){button.disabled=true;button.dataset.original=button.textContent;button.textContent='Подождите...'}
+  if(form.id==='demo-post' && staticPreview){
+   const title = text(fields.title.trim());
+   const description = text(fields.description.trim());
+   const city = text(fields.city.trim());
+   const budget = fields.budget ? currency(Number(fields.budget)) : 'По договорённости';
+   main(intro('Предпросмотр','Ваш черновик','Демонстрация: этот заказ НЕ опубликован и нигде не сохранён.') +
+     `<div class="card" style="max-width:850px"><span class="pill">Черновик · демо</span><h2 style="margin:15px 0">${title}</h2>
+       <p class="muted">${city} · ${text(fields.category)}</p><p style="white-space:pre-wrap;margin:20px 0">${description}</p>
+       <div class="info-row"><span class="muted">Бюджет</span><strong>${budget}</strong></div>
+       <p class="smallprint" style="margin-top:15px">Реальная публикация станет доступна после подключения защищённой базы и авторизации.</p>
+       <a href="/post" data-link class="btn ghost">Создать другой черновик</a></div>`);
+   rewritePreviewLinks();
+   return;
+  }
   if(form.id==='auth-form'){
    const url=fields.mode==='register'?'/api/register':'/api/login';const data={email:fields.email,password:fields.password};if(fields.mode==='register')Object.assign(data,{role:fields.role,name:fields.name,city:fields.city});
    await api(url,{method:'POST',body:JSON.stringify(data)});await loadSession();toast('Вы вошли в аккаунт');navTo(isCustomer()?'/my-jobs':'/my-offers');return;
