@@ -19,4 +19,7 @@ jobs:
         with:
           node-version: '22'
       - name: Browser script syntax
-        run: node --check --input-type=module < app/static/app.js
+        run: |
+          node --check --input-type=module < app/static/app.js
+          node --check --input-type=module < app/static/estimate.js
+          node --experimental-default-type=module tests/test_estimate_ui.mjs

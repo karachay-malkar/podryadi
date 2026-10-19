@@ -1,5 +1,9 @@
 """Podryadi API. No payment bypass: gateway must be configured before contact release."""
 import hashlib
+import asyncio
+import urllib.request
+import urllib.error
+from decimal import Decimal, ROUND_HALF_UP
 import hmac
 import io
 import os
@@ -17,6 +21,7 @@ from PIL import Image, UnidentifiedImageError
 
 from .db import DATA_DIR, connect, init_db, transaction
 from .fees import fee_for
+from .estimate_ai import generate_draft
 
 ROOT = Path(__file__).resolve().parent
 COOKIE_NAME = 'pd_session'
@@ -72,11 +77,23 @@ class Profile(BaseModel):
         return clean_public(value)
 
 
+class Material(BaseModel):
+    label: str = Field(min_length=2, max_length=120)
+    unit: str = Field(min_length=1, max_length=12)
+    quantity: float = Field(gt=0, le=1000000)
+
+    @field_validator('label')
+    @classmethod
+    def no_contacts(cls, value):
+        return clean_public(value)
+
+
 class Item(BaseModel):
     label: str = Field(min_length=2, max_length=160)
     unit: str = Field(min_length=1, max_length=12)
     quantity: float = Field(gt=0, le=1000000)
     note: str = Field(default='', max_length=240)
+    materials: list[Material] = Field(default_factory=list, max_length=20)
 
     @field_validator('label', 'note')
     @classmethod
@@ -92,20 +109,45 @@ class JobCreate(BaseModel):
     budget: int | None = Field(default=None, gt=0, le=1000000000)
     start_when: str = Field(default='По договорённости', max_length=70)
     phone: str = Field(min_length=10, max_length=25)
-    items: list[Item] = Field(default_factory=list, max_length=40)
+    items: list[Item] = Field(min_length=1, max_length=40)
+    floor: int = Field(ge=0, le=200)
+    elevator: str = Field(default='unknown', pattern='^(yes|no|unknown)$')
+    access_details: str = Field(default='', max_length=1000)
+    materials_policy: str = Field(default='contractor', pattern='^(contractor|customer|discuss)$')
 
-    @field_validator('title', 'description', 'start_when')
+    @field_validator('title', 'description', 'start_when', 'access_details')
     @classmethod
     def no_contacts(cls, value):
         return clean_public(value)
 
 
+class RatePrice(BaseModel):
+    rate_id: int = Field(gt=0)
+    unit_price: int = Field(ge=0, le=100000000)
+
+
+class MaterialPrice(BaseModel):
+    material_id: int = Field(gt=0)
+    unit_price: int = Field(ge=0, le=100000000)
+
+
 class OfferCreate(BaseModel):
-    amount: int = Field(gt=0, le=1000000000)
     days: int = Field(ge=1, le=365)
     note: str = Field(default='', max_length=1500)
+    rate_prices: list[RatePrice] = Field(min_length=1, max_length=40)
+    material_prices: list[MaterialPrice] = Field(default_factory=list, max_length=200)
+    accept_scope: bool = False
 
     @field_validator('note')
+    @classmethod
+    def no_contacts(cls, value):
+        return clean_public(value)
+
+
+class EstimatePrompt(BaseModel):
+    text: str = Field(min_length=20, max_length=2500)
+
+    @field_validator('text')
     @classmethod
     def no_contacts(cls, value):
         return clean_public(value)
@@ -178,7 +220,7 @@ def health():
 
 @app.get('/api/config')
 def config():
-    return {'payments_enabled':False,'test_mode':True,'categories':CATEGORIES}
+    return {'payments_enabled':False,'ai_enabled':bool(os.getenv('OPENAI_API_KEY')),'test_mode':True,'categories':CATEGORIES}
 
 
 @app.post('/api/register', status_code=201)
@@ -241,7 +283,7 @@ def update_profile(payload: Profile, user=Depends(csrf)):
 
 
 def job_dict(job):
-    return {k:job[k] for k in ('id','customer_id','title','description','category','city','budget','start_when','status','created_at')}
+    return {k:job[k] for k in ('id','customer_id','title','description','category','city','budget','start_when','status','created_at','floor','elevator','access_details','materials_policy')}
 
 
 @app.get('/api/jobs')
@@ -258,6 +300,22 @@ def list_jobs(city: str='', category: str='', q: str='', offset:int=0, limit:int
     return {'jobs':[job_dict(r)|{'item_count':r['item_count']} for r in rows]}
 
 
+@app.post('/api/estimate/draft')
+async def draft_estimate(payload: EstimatePrompt, user=Depends(csrf)):
+    role_required(user,'customer')
+    if not os.environ.get('OPENAI_API_KEY'):
+        raise HTTPException(503,'ИИ не подключён. Вы можете составить перечень вручную.')
+    # Recheck for contacts: do not send personal information to a third-party AI service.
+    if PHONE_PATTERN.search(payload.text):
+        raise HTTPException(422,'Удалите телефон, ссылки и email из описания для ИИ')
+    try:
+        return await asyncio.to_thread(generate_draft,payload.text)
+    except (ValueError,RuntimeError):
+        raise HTTPException(422,'ИИ не смог составить черновик. Уточните описание или заполните вручную.')
+    except (urllib.error.URLError, TimeoutError):
+        raise HTTPException(503,'ИИ временно недоступен. Составьте перечень вручную.')
+
+
 @app.post('/api/jobs',status_code=201)
 def create_job(payload: JobCreate, user=Depends(csrf)):
     role_required(user,'customer')
@@ -266,13 +324,18 @@ def create_job(payload: JobCreate, user=Depends(csrf)):
     if not re.fullmatch(r'\+?[\d ()-]{10,25}',payload.phone) or len(re.sub(r'\D','',payload.phone)) < 10:
         raise HTTPException(422,'Укажите корректный телефон')
     with transaction() as db:
-        cur=db.execute('INSERT INTO jobs(customer_id,title,description,category,city,budget,start_when) VALUES (?,?,?,?,?,?,?)',
-                       (user['id'],payload.title,payload.description,payload.category,payload.city.strip(),payload.budget,payload.start_when))
+        cur=db.execute('''INSERT INTO jobs(customer_id,title,description,category,city,budget,start_when,floor,elevator,access_details,materials_policy)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                       (user['id'],payload.title,payload.description,payload.category,payload.city.strip(),payload.budget,payload.start_when,
+                        payload.floor,payload.elevator,payload.access_details,payload.materials_policy))
         jid=cur.lastrowid
         db.execute('INSERT INTO job_contacts(job_id,phone) VALUES (?,?)',(jid,payload.phone.strip()))
         for i,item in enumerate(payload.items):
-            db.execute('INSERT INTO work_items(job_id,label,unit,quantity,note,ordinal) VALUES (?,?,?,?,?,?)',
+            rate = db.execute('INSERT INTO work_items(job_id,label,unit,quantity,note,ordinal) VALUES (?,?,?,?,?,?)',
                        (jid,item.label,item.unit,item.quantity,item.note,i))
+            for m, material in enumerate(item.materials):
+                db.execute('INSERT INTO rate_materials(rate_id,label,unit,quantity,ordinal) VALUES (?,?,?,?,?)',
+                           (rate.lastrowid,material.label,material.unit,material.quantity,m))
         record_event(db,jid,user['id'],'created')
     return {'id':jid}
 
@@ -287,7 +350,9 @@ def job_detail(job_id: int, request: Request):
         if job['status']!='open' and not owner:
             my_offer=db.execute('SELECT id FROM offers WHERE job_id=? AND contractor_id=?',(job_id,user['id'] if user else -1)).fetchone()
             if not my_offer: raise HTTPException(404,'Заказ недоступен')
-        items=[dict(r) for r in db.execute('SELECT label,unit,quantity,note FROM work_items WHERE job_id=? ORDER BY ordinal',(job_id,)).fetchall()]
+        items=[dict(r) for r in db.execute('SELECT id,label,unit,quantity,note FROM work_items WHERE job_id=? ORDER BY ordinal',(job_id,)).fetchall()]
+        for item in items:
+            item['materials'] = [dict(r) for r in db.execute('SELECT id,label,unit,quantity FROM rate_materials WHERE rate_id=? ORDER BY ordinal',(item['id'],)).fetchall()]
         photos=[r['id'] for r in db.execute('SELECT id FROM photos WHERE job_id=?',(job_id,)).fetchall()]
         offers=[]
         if owner:
@@ -295,6 +360,9 @@ def job_detail(job_id: int, request: Request):
                  FROM offers o JOIN users u ON u.id=o.contractor_id WHERE o.job_id=? ORDER BY o.amount''',(job_id,))]
         elif user:
             offers=[dict(r) for r in db.execute('SELECT id,amount,days,note,status,created_at FROM offers WHERE job_id=? AND contractor_id=?',(job_id,user['id']))]
+        for offer in offers:
+            offer['rate_prices'] = {r['rate_id']:r['unit_price'] for r in db.execute('SELECT rate_id,unit_price FROM offer_rate_prices WHERE offer_id=?',(offer['id'],))}
+            offer['material_prices'] = {r['material_id']:r['unit_price'] for r in db.execute('SELECT material_id,unit_price FROM offer_material_prices WHERE offer_id=?',(offer['id'],))}
         result=job_dict(job)|{'items':items,'photo_ids':photos,'offers':offers,'selected_offer_id':job['selected_offer_id'] if owner else None,'is_owner':owner}
         if owner:
             c=db.execute('SELECT phone,email FROM job_contacts WHERE job_id=?',(job_id,)).fetchone()
@@ -320,6 +388,7 @@ def my_offers(user=Depends(require_user)):
 @app.post('/api/jobs/{job_id}/offers',status_code=201)
 def submit_offer(job_id: int, payload: OfferCreate, user=Depends(csrf)):
     role_required(user,'contractor')
+    if not payload.accept_scope: raise HTTPException(422,'Подтвердите включение обязательных расходов')
     with transaction() as db:
         job=db.execute('SELECT * FROM jobs WHERE id=?',(job_id,)).fetchone()
         if not job: raise HTTPException(404,'Заказ не найден')
@@ -327,9 +396,25 @@ def submit_offer(job_id: int, payload: OfferCreate, user=Depends(csrf)):
         if job['customer_id']==user['id']: raise HTTPException(403,'Нельзя ответить на свой заказ')
         existing=db.execute('SELECT id FROM offers WHERE job_id=? AND contractor_id=?',(job_id,user['id'])).fetchone()
         if existing: raise HTTPException(409,'Вы уже отправили предложение')
+        rates=db.execute('SELECT id,quantity FROM work_items WHERE job_id=?',(job_id,)).fetchall()
+        materials=db.execute('SELECT m.id,m.quantity FROM rate_materials m JOIN work_items r ON r.id=m.rate_id WHERE r.job_id=?',(job_id,)).fetchall()
+        rp={x.rate_id:x.unit_price for x in payload.rate_prices}
+        mp={x.material_id:x.unit_price for x in payload.material_prices}
+        if len(rp)!=len(payload.rate_prices) or len(mp)!=len(payload.material_prices) or set(rp)!={x['id'] for x in rates} or set(mp)!={x['id'] for x in materials}:
+            raise HTTPException(422,'Укажите цены для всех работ и материалов без пропусков и повторений')
+        if job['materials_policy']=='customer' and any(price != 0 for price in mp.values()):
+            raise HTTPException(422,'Если материалы предоставляет заказчик, цена материалов должна быть нулевой')
+        amount=sum((Decimal(str(x['quantity']))*rp[x['id']] for x in rates), Decimal(0))
+        amount+=sum((Decimal(str(x['quantity']))*mp[x['id']] for x in materials), Decimal(0))
+        amount=int(amount.quantize(Decimal(1),rounding=ROUND_HALF_UP))
+        if amount <= 0 or amount > 1000000000:
+            raise HTTPException(422,'Итоговая стоимость должна быть больше нуля')
         cur=db.execute('INSERT INTO offers(job_id,contractor_id,amount,days,note) VALUES (?,?,?,?,?)',
-                       (job_id,user['id'],payload.amount,payload.days,payload.note))
-    return {'id':cur.lastrowid,'fee_preview':fee_for(payload.amount)}
+                       (job_id,user['id'],amount,payload.days,payload.note))
+        oid=cur.lastrowid
+        db.executemany('INSERT INTO offer_rate_prices(offer_id,rate_id,unit_price) VALUES (?,?,?)',[(oid,k,v) for k,v in rp.items()])
+        db.executemany('INSERT INTO offer_material_prices(offer_id,material_id,unit_price) VALUES (?,?,?)',[(oid,k,v) for k,v in mp.items()])
+    return {'id':oid,'amount':amount,'fee_preview':fee_for(amount)}
 
 
 @app.post('/api/jobs/{job_id}/select/{offer_id}')
