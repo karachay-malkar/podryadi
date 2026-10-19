@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS jobs (
  city TEXT NOT NULL,
  budget INTEGER,
  start_when TEXT NOT NULL DEFAULT 'По договорённости',
+ floor INTEGER CHECK(floor BETWEEN 0 AND 200),
+ elevator TEXT NOT NULL DEFAULT 'unknown' CHECK(elevator IN ('yes','no','unknown')),
+ access_details TEXT NOT NULL DEFAULT '',
+ materials_policy TEXT NOT NULL DEFAULT 'contractor' CHECK(materials_policy IN ('contractor','customer','discuss')),
  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','selected','completed','cancelled')),
  selected_offer_id INTEGER,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -61,6 +65,15 @@ CREATE TABLE IF NOT EXISTS work_items (
  note TEXT NOT NULL DEFAULT '',
  ordinal INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS rate_materials (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ rate_id INTEGER NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ label TEXT NOT NULL,
+ unit TEXT NOT NULL,
+ quantity REAL NOT NULL CHECK(quantity > 0),
+ ordinal INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS materials_rate ON rate_materials(rate_id,ordinal);
 CREATE TABLE IF NOT EXISTS photos (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
@@ -77,6 +90,18 @@ CREATE TABLE IF NOT EXISTS offers (
  status TEXT NOT NULL DEFAULT 'submitted' CHECK(status IN ('submitted','selected','rejected','withdrawn')),
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE(job_id,contractor_id)
+);
+CREATE TABLE IF NOT EXISTS offer_rate_prices (
+ offer_id INTEGER NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+ rate_id INTEGER NOT NULL REFERENCES work_items(id),
+ unit_price INTEGER NOT NULL CHECK(unit_price >= 0),
+ PRIMARY KEY (offer_id,rate_id)
+);
+CREATE TABLE IF NOT EXISTS offer_material_prices (
+ offer_id INTEGER NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+ material_id INTEGER NOT NULL REFERENCES rate_materials(id),
+ unit_price INTEGER NOT NULL CHECK(unit_price >= 0),
+ PRIMARY KEY (offer_id,material_id)
 );
 CREATE INDEX IF NOT EXISTS offers_job ON offers(job_id);
 CREATE INDEX IF NOT EXISTS offers_contractor ON offers(contractor_id,created_at DESC);
@@ -104,6 +129,16 @@ def init_db():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # In-place additive schema upgrade. No duplicate tables or compatibility endpoints.
+        columns = {row['name'] for row in conn.execute('PRAGMA table_info(jobs)')}
+        if 'floor' not in columns:
+            conn.execute('ALTER TABLE jobs ADD COLUMN floor INTEGER CHECK(floor BETWEEN 0 AND 200)')
+        if 'elevator' not in columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN elevator TEXT NOT NULL DEFAULT 'unknown'")
+        if 'access_details' not in columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN access_details TEXT NOT NULL DEFAULT ''")
+        if 'materials_policy' not in columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN materials_policy TEXT NOT NULL DEFAULT 'contractor'")
 
 
 @contextmanager
