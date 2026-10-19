@@ -76,3 +76,61 @@
  .comparison th:first-child{min-width:138px}
  .comparison td{min-width:98px}
 }
+
+/* 0.2.2 — lean posting flow */
+.post-shell{max-width:860px;margin:32px auto 65px}
+.post-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+.post-heading h1{font-size:30px;letter-spacing:-.04em;margin:0}
+.post-form{display:grid;gap:10px}
+.post-panel{background:white;border:1px solid var(--line);border-radius:14px;padding:16px 20px}
+.post-label{font-size:14px;font-weight:750;color:var(--ink);display:block;margin:0 0 10px}
+.post-label-small{font-size:12px;color:#64776d;margin:0 0 7px}
+.post-description textarea{height:104px;min-height:104px;width:100%;resize:vertical;font-size:15px;line-height:1.55;padding:13px}
+.post-generate{display:flex;align-items:center;gap:12px;margin-top:9px;flex-wrap:wrap}
+.post-ai{min-height:36px;padding:9px 14px;font-size:13px}
+.post-notice:not(:empty){font-size:11px;margin-top:8px;color:#62766b}
+.post-location{display:grid;grid-template-columns:minmax(0,1fr) 154px;gap:10px}
+.post-location:has(.post-floor-extra:not([hidden])){grid-template-columns:minmax(0,1fr) 138px 138px}
+.post-field{display:grid;gap:5px;font-size:12px;color:#687a70;font-weight:600;min-width:0}
+.post-field input,.post-field select,.post-field textarea{width:100%;box-sizing:border-box;min-width:0;min-height:40px;border:1px solid #dfe7e0;border-radius:9px;background:#fff;padding:9px 11px;font-size:13px;color:var(--ink)}
+.post-field textarea{min-height:66px;resize:vertical}
+.post-choice-block{margin-top:15px}
+.post-choice,.post-checks{display:flex;flex-wrap:wrap;gap:6px}
+.choice-pill,.check-chip{position:relative;display:inline-flex;min-height:35px;cursor:pointer}
+.choice-pill input,.check-chip input{position:absolute;opacity:0;width:1px;height:1px}
+.choice-pill span,.check-chip span{display:inline-flex;align-items:center;justify-content:center;padding:7px 12px;border:1px solid #dce7dd;border-radius:9px;background:#f7faf7;font-size:12px;font-weight:650;color:#5e7067;transition:background .12s,border-color .12s}
+.choice-pill input:checked+span,.check-chip input:checked+span{background:#e2f0e7;border-color:#43866c;color:#20553f}
+.choice-pill input:focus-visible+span,.check-chip input:focus-visible+span{outline:2px solid #20553f;outline-offset:2px}
+.post-extras{border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
+.post-extras summary{cursor:pointer;font-size:12px;color:var(--green);font-weight:700}
+.post-extras summary span{font-weight:400;color:var(--muted);margin-left:4px}
+.post-extras-content{padding-top:12px;display:grid;gap:12px}
+.post-extras-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.post-estimate{padding:0}
+.post-estimate>summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 20px;font-size:14px;font-weight:750;list-style:none}
+.post-estimate>summary::-webkit-details-marker{display:none}
+.post-estimate>summary strong{margin-left:6px;color:var(--green);font-size:12px;font-weight:650}
+.post-estimate>summary>.smallprint{font-size:11px;color:var(--green);font-weight:600}
+.post-estimate-content{border-top:1px solid var(--line);padding:8px 20px 16px}
+.post-contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.post-consent{display:flex;align-items:flex-start;gap:8px;margin-top:13px;color:#6b7f71;font-size:11px;line-height:1.5;cursor:pointer}
+.post-consent input{flex:none;margin-top:2px}
+.post-submit{display:flex;justify-content:flex-end;margin-top:6px}
+.post-submit .btn{min-height:45px}
+.post-demo-note{font-size:12px;color:var(--muted);margin:0}
+.post-floor-extra[hidden],#elevator-field[hidden]{display:none}
+@media(max-width:620px){
+ .post-shell{margin:21px auto 80px}
+ .post-heading h1{font-size:25px}
+ .post-panel{padding:13px}
+ .post-description textarea{height:115px;min-height:115px;font-size:14px}
+ .post-generate{justify-content:space-between}
+ .post-generate .smallprint{font-size:10px}
+ .post-location,.post-location:has(.post-floor-extra:not([hidden])){grid-template-columns:minmax(0,1fr) 100px}
+ .post-location .post-floor-extra{grid-column:1/-1}
+ .post-contact-grid,.post-extras-grid{grid-template-columns:1fr}
+ .choice-pill span,.check-chip span{padding:7px 10px;font-size:11px}
+ .post-estimate>summary{padding:13px}
+ .post-estimate-content{padding:7px 13px 13px}
+ .post-submit .btn{width:100%}
+}
