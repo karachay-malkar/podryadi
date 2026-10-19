@@ -1,0 +1,1 @@
+"""Podryadi application."""

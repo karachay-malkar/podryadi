@@ -1,0 +1,22 @@
+name: Checks
+on:
+  push:
+  pull_request:
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest httpx
+      - name: API and security tests
+        run: pytest -q tests/test_app.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Browser script syntax
+        run: node --check --input-type=module < app/static/app.js
